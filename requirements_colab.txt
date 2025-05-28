@@ -1,0 +1,31 @@
+# Google Colab Compatible Requirements
+# No version conflicts with Colab's built-in packages
+
+# PDF Processing (minimal versions)
+pdfplumber>=0.7.0
+PyPDF2>=2.0.0
+
+# Text Processing & Embeddings  
+sentence-transformers>=2.2.0
+transformers>=4.30.0
+
+# Vector Database
+chromadb>=0.4.0
+
+# LLM APIs (optional)
+openai>=1.0.0
+
+# Data Processing (Colab already has these, but specify if needed)
+# pandas (already in Colab)
+# numpy (already in Colab)
+
+# Web Interface
+gradio>=4.0.0
+
+# Utilities
+python-dotenv>=1.0.0
+tqdm  # already in Colab
+
+# Acceleration for local models
+accelerate>=0.20.0
+bitsandbytes>=0.40.0  # for quantization 

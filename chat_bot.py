@@ -610,9 +610,18 @@ if __name__ == "__main__":
     demo = create_gradio_interface()
     
     # Launch with configuration
+    # Detect if running in Colab
+    is_colab = False
+    try:
+        import google.colab
+        is_colab = True
+        logger.info("🔍 Google Colab detected")
+    except ImportError:
+        logger.info("💻 Running locally")
+    
     demo.launch(
         server_name="0.0.0.0",
         server_port=7860,
-        share=False,  # Set to True for Colab public URL
-        debug=True
+        share=is_colab,  # Auto-enable share for Colab
+        debug=not is_colab  # Disable debug in Colab for cleaner output
     ) 

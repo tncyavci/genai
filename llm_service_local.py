@@ -285,29 +285,29 @@ Bulunan İlgili Bilgiler:
 # Model configurations
 RECOMMENDED_MODELS = {
     "llama_3_1_8b": {
-        "name": "microsoft/DialoGPT-medium", 
-        "memory": "~4GB",
-        "description": "Test için hafif model - Türkçe desteği sınırlı"
+        "name": "meta-llama/Llama-3.1-8B-Instruct", 
+        "memory": "~16GB",
+        "description": "En dengeli seçim - Türkçe ve finansal analiz için optimize (HF Token gerekli)"
     },
     "mistral_7b": {
-        "name": "microsoft/DialoGPT-medium",
-        "memory": "~4GB", 
-        "description": "Test için hafif model - Hızlı çalışır"
+        "name": "mistralai/Mistral-7B-Instruct-v0.3",
+        "memory": "~14GB", 
+        "description": "Hızlı ve efficient - Düşük memory kullanımı"
     },
-    "llama_3_2_1b": {
-        "name": "huggingface-course/bert-finetuned-squad",
-        "memory": "~2GB",
-        "description": "Çok hafif test modeli"
+    "llama_3_2_3b": {
+        "name": "meta-llama/Llama-3.2-3B-Instruct",
+        "memory": "~6GB",
+        "description": "Hafif model - Düşük GPU memory için (HF Token gerekli)"
     },
-    "open_llama_7b": {
-        "name": "openlm-research/open_llama_7b",
-        "memory": "~14GB",
-        "description": "Açık kaynak Llama alternatifi"
+    "phi_3_mini": {
+        "name": "microsoft/Phi-3-mini-4k-instruct",
+        "memory": "~8GB",
+        "description": "Microsoft'un compact modeli - Hızlı ve verimli"
     },
     "gpt2_turkish": {
         "name": "redrussianarmy/gpt2-turkish-cased",
         "memory": "~2GB",
-        "description": "Türkçe GPT-2 modeli - Hafif ve hızlı"
+        "description": "Türkçe GPT-2 modeli - Çok hafif ama basit"
     }
 }
 
