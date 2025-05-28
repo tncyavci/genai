@@ -1,6 +1,11 @@
 # Google Colab Compatible Requirements
 # Streamlit version (gradio replacement)
 
+# Core dependencies
+torch>=2.0.0
+numpy
+pandas
+
 # PDF Processing
 pdfplumber>=0.7.0
 PyPDF2>=2.0.0
@@ -8,6 +13,7 @@ PyPDF2>=2.0.0
 # Text Processing & Embeddings  
 sentence-transformers>=2.2.0
 transformers>=4.30.0
+huggingface-hub>=0.16.0
 
 # Vector Database
 chromadb>=0.4.0
@@ -20,7 +26,12 @@ streamlit>=1.28.0
 
 # Utilities
 python-dotenv>=1.0.0
+tqdm
+typing-extensions
 
 # Acceleration for local models
 accelerate>=0.20.0
-bitsandbytes>=0.40.0 
+bitsandbytes>=0.40.0
+
+# For Google Colab tunneling
+pyngrok 
