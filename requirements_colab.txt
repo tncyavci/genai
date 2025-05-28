@@ -19,8 +19,9 @@ openai>=1.0.0
 # pandas (already in Colab)
 # numpy (already in Colab)
 
-# Web Interface
+# Web Interface (with client dependency)
 gradio>=4.0.0
+gradio-client>=0.10.0
 
 # Utilities
 python-dotenv>=1.0.0
