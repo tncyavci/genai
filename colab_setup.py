@@ -35,14 +35,14 @@ def install_packages():
     
     print("🚀 Starting Google Colab setup for PDF ChatBot...")
     
-    # First, handle gradio compatibility issue
-    print("🔧 Fixing Gradio compatibility...")
+    # First, handle gradio compatibility issue with AGGRESSIVE approach
+    print("🔧 Fixing Gradio compatibility with aggressive approach...")
     
-    # Force reinstall compatible versions
+    # More aggressive gradio fix - use older stable versions
     gradio_commands = [
         "pip uninstall -y gradio gradio-client",
-        "pip install gradio==4.44.0 gradio-client==1.3.0",  # Known compatible versions
-        "pip install --upgrade --force-reinstall gradio-client"
+        "pip install --no-cache-dir gradio==4.26.0",  # Older but stable version
+        "pip install --no-cache-dir gradio-client==0.12.0",  # Compatible client
     ]
     
     for cmd in gradio_commands:
@@ -50,33 +50,34 @@ def install_packages():
         run_command(cmd, ignore_errors=True)
     
     # Test gradio import
+    print("🧪 Testing gradio import...")
     try:
         import gradio as gr
         print("✅ Gradio imported successfully!")
+        print(f"✅ Gradio version: {gr.__version__}")
     except Exception as e:
         print(f"⚠️ Gradio import failed: {e}")
-        print("🔄 Trying alternative fix...")
+        print("🔄 Trying emergency fix...")
         
-        # Alternative fix commands
-        alt_commands = [
-            "pip install gradio==4.28.3",  # Stable older version
-            "pip install --no-deps gradio-client==0.15.0",
-            "pip install --upgrade gradio"
+        # Emergency fix commands - even older versions
+        emergency_commands = [
+            "pip uninstall -y gradio gradio-client",
+            "pip install --no-cache-dir gradio==4.16.0",  # Very stable old version
+            "pip install --no-cache-dir gradio-client==0.8.1",
         ]
         
-        for cmd in alt_commands:
-            print(f"Running alternative: {cmd}")
+        for cmd in emergency_commands:
+            print(f"Running emergency fix: {cmd}")
             run_command(cmd, ignore_errors=True)
             
-            # Test again
-            try:
-                import gradio as gr
-                print("✅ Gradio fixed with alternative approach!")
-                break
-            except:
-                continue
-        else:
-            print("❌ Gradio still has issues - will try manual fix later")
+        # Test again
+        try:
+            import gradio as gr
+            print("✅ Gradio fixed with emergency approach!")
+            print(f"✅ Gradio version: {gr.__version__}")
+        except Exception as e2:
+            print(f"❌ Emergency fix also failed: {e2}")
+            print("🆘 Will create manual fix file...")
     
     # Essential packages (without gradio since we handled it above)
     essential_packages = [
@@ -165,25 +166,37 @@ def fix_gradio_manual():
     print("\nIf gradio import still fails, try these commands in order:")
     
     commands = [
-        "# Option 1: Clean reinstall",
+        "# EMERGENCY FIX - Most stable versions",
         "!pip uninstall -y gradio gradio-client",
-        "!pip install gradio==4.44.0 gradio-client==1.3.0",
+        "!pip install --no-cache-dir gradio==4.16.0 gradio-client==0.8.1",
         "",
-        "# Option 2: Force compatible versions", 
-        "!pip install --force-reinstall gradio==4.28.3",
-        "!pip install --no-deps gradio-client==0.15.0",
+        "# Option 1: Alternative stable versions",
+        "!pip uninstall -y gradio gradio-client", 
+        "!pip install --no-cache-dir gradio==4.26.0 gradio-client==0.12.0",
         "",
-        "# Option 3: Latest versions with fixes",
-        "!pip install --upgrade --force-reinstall gradio gradio-client",
+        "# Option 2: Force older compatible versions", 
+        "!pip install --force-reinstall --no-cache-dir gradio==4.20.0",
+        "!pip install --no-deps gradio-client==0.10.0",
         "",
-        "# Option 4: Restart runtime and try again",
-        "# Runtime → Restart runtime, then run setup again"
+        "# Option 3: Latest with manual client fix",
+        "!pip install gradio",
+        "!pip uninstall -y gradio-client",
+        "!pip install gradio-client==0.8.1",
+        "",
+        "# Option 4: Nuclear option - restart runtime",
+        "# Runtime → Restart runtime",
+        "# !pip install gradio==4.16.0",
+        "# Then run setup again",
+        "",
+        "# Test command after each attempt:",
+        "import gradio as gr",
+        "print(f'Gradio version: {gr.__version__}')"
     ]
     
-    with open("gradio_fix_commands.txt", "w") as f:
+    with open("gradio_emergency_fix.txt", "w") as f:
         f.write("\n".join(commands))
     
-    print("📝 Commands saved to gradio_fix_commands.txt")
+    print("📝 Emergency commands saved to gradio_emergency_fix.txt")
     
     for cmd in commands:
         print(cmd)
@@ -323,7 +336,7 @@ def main():
     print("\n🎉 Setup completed!")
     print("\n📋 Next steps:")
     print("1. Check colab_startup.md for detailed instructions")
-    print("2. If gradio import fails, check gradio_fix_commands.txt")
+    print("2. If gradio import fails, check gradio_emergency_fix.txt")
     print("3. Get HuggingFace token if using Llama models")
     print("4. Run: python chat_bot.py")
     
@@ -331,7 +344,7 @@ def main():
     print("- Runtime → Restart runtime")
     print("- Run: !pip install gradio==4.28.3")
     print("- Run this script again")
-    print("- Check gradio_fix_commands.txt for more options")
+    print("- Check gradio_emergency_fix.txt for more options")
     
     # Final import test
     try:
@@ -339,7 +352,7 @@ def main():
         print("\n✅ Final check: Gradio imported successfully!")
     except Exception as e:
         print(f"\n❌ Final check failed: {e}")
-        print("📋 Use manual fix commands from gradio_fix_commands.txt")
+        print("📋 Use manual fix commands from gradio_emergency_fix.txt")
 
 if __name__ == "__main__":
     main() 
