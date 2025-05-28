@@ -35,7 +35,50 @@ def install_packages():
     
     print("🚀 Starting Google Colab setup for PDF ChatBot...")
     
-    # Essential packages first
+    # First, handle gradio compatibility issue
+    print("🔧 Fixing Gradio compatibility...")
+    
+    # Force reinstall compatible versions
+    gradio_commands = [
+        "pip uninstall -y gradio gradio-client",
+        "pip install gradio==4.44.0 gradio-client==1.3.0",  # Known compatible versions
+        "pip install --upgrade --force-reinstall gradio-client"
+    ]
+    
+    for cmd in gradio_commands:
+        print(f"Running: {cmd}")
+        run_command(cmd, ignore_errors=True)
+    
+    # Test gradio import
+    try:
+        import gradio as gr
+        print("✅ Gradio imported successfully!")
+    except Exception as e:
+        print(f"⚠️ Gradio import failed: {e}")
+        print("🔄 Trying alternative fix...")
+        
+        # Alternative fix commands
+        alt_commands = [
+            "pip install gradio==4.28.3",  # Stable older version
+            "pip install --no-deps gradio-client==0.15.0",
+            "pip install --upgrade gradio"
+        ]
+        
+        for cmd in alt_commands:
+            print(f"Running alternative: {cmd}")
+            run_command(cmd, ignore_errors=True)
+            
+            # Test again
+            try:
+                import gradio as gr
+                print("✅ Gradio fixed with alternative approach!")
+                break
+            except:
+                continue
+        else:
+            print("❌ Gradio still has issues - will try manual fix later")
+    
+    # Essential packages (without gradio since we handled it above)
     essential_packages = [
         "transformers>=4.30.0",
         "accelerate>=0.20.0", 
@@ -43,22 +86,22 @@ def install_packages():
         "pdfplumber>=0.7.0",
         "PyPDF2>=2.0.0",
         "chromadb>=0.4.0",
-        "gradio>=4.0.0",
         "python-dotenv"
     ]
     
     print("📦 Installing essential packages...")
     for package in essential_packages:
         print(f"Installing {package}...")
-        success = run_command(f"pip install --no-deps {package}", ignore_errors=True)
+        success = run_command(f"pip install {package}", ignore_errors=True)
         if not success:
-            # Try without --no-deps
-            run_command(f"pip install {package}", ignore_errors=True)
+            # Try with --no-deps if regular install fails
+            run_command(f"pip install --no-deps {package}", ignore_errors=True)
     
     # Optional packages
     optional_packages = [
         "openai>=1.0.0",
-        "bitsandbytes"  # May fail on some systems
+        "bitsandbytes",  # May fail on some systems
+        "torch>=2.0.0"  # Ensure latest torch
     ]
     
     print("🔧 Installing optional packages...")
@@ -116,18 +159,68 @@ def check_gpu():
     else:
         print("⚠️ No GPU detected - Local LLM will be very slow")
 
+def fix_gradio_manual():
+    """Manual gradio fix function"""
+    print("🚨 Manual Gradio Fix Options:")
+    print("\nIf gradio import still fails, try these commands in order:")
+    
+    commands = [
+        "# Option 1: Clean reinstall",
+        "!pip uninstall -y gradio gradio-client",
+        "!pip install gradio==4.44.0 gradio-client==1.3.0",
+        "",
+        "# Option 2: Force compatible versions", 
+        "!pip install --force-reinstall gradio==4.28.3",
+        "!pip install --no-deps gradio-client==0.15.0",
+        "",
+        "# Option 3: Latest versions with fixes",
+        "!pip install --upgrade --force-reinstall gradio gradio-client",
+        "",
+        "# Option 4: Restart runtime and try again",
+        "# Runtime → Restart runtime, then run setup again"
+    ]
+    
+    with open("gradio_fix_commands.txt", "w") as f:
+        f.write("\n".join(commands))
+    
+    print("📝 Commands saved to gradio_fix_commands.txt")
+    
+    for cmd in commands:
+        print(cmd)
+
 def create_startup_notebook():
     """Create a startup notebook for Colab"""
     
     notebook_content = """
 # PDF ChatBot - Google Colab Setup
 
-## 1. Check System
+## 1. Initial Setup & Fix Dependencies
 ```python
+# Run the setup script
 !python colab_setup.py
 ```
 
-## 2. Check GPU (Important!)
+## 2. Manual Gradio Fix (if needed)
+```python
+# If you get gradio import errors, try these in order:
+
+# Option 1: Clean reinstall 
+!pip uninstall -y gradio gradio-client
+!pip install gradio==4.44.0 gradio-client==1.3.0
+
+# Option 2: Alternative versions
+!pip install gradio==4.28.3
+!pip install --no-deps gradio-client==0.15.0
+
+# Option 3: Force latest
+!pip install --upgrade --force-reinstall gradio gradio-client
+
+# Test import
+import gradio as gr
+print("✅ Gradio working!")
+```
+
+## 3. Check GPU (Important!)
 ```python
 import torch
 print(f"GPU: {torch.cuda.is_available()}")
@@ -136,25 +229,30 @@ if torch.cuda.is_available():
     print(f"Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f}GB")
 ```
 
-## 3. HuggingFace Login (for Llama models)
+## 4. HuggingFace Login (for Llama models)
 ```python
 # Get token from: https://huggingface.co/settings/tokens
 from huggingface_hub import login
 login(token="your_token_here")
 ```
 
-## 4. Start ChatBot
+## 5. Start ChatBot
 ```python
-# Start with public URL for Colab
+# Method 1: Direct run with public URL
 !python chat_bot.py &
 
-# Or programmatically:
+# Method 2: Programmatic with custom settings
 from chat_bot import create_gradio_interface
 demo = create_gradio_interface()
-demo.launch(share=True, debug=False)  # share=True creates public URL
+demo.launch(
+    share=True,          # Creates public URL for Colab
+    debug=False,
+    server_port=7860,
+    server_name="0.0.0.0"
+)
 ```
 
-## 5. Memory Management (if needed)
+## 6. Memory Management (if needed)
 ```python
 import gc
 import torch
@@ -170,13 +268,29 @@ if torch.cuda.is_available():
     print(f"Memory cached: {torch.cuda.memory_reserved() / 1e9:.1f}GB")
 ```
 
-## Model Recommendations by GPU Memory:
+## 7. Troubleshooting
 
+### Common Issues:
+1. **Gradio import error**: Use manual fix commands above
+2. **Memory error**: Restart runtime, use smaller model
+3. **HuggingFace error**: Check token, accept model terms
+4. **Slow loading**: Use quantized models (4-bit/8-bit)
+
+### Model Recommendations by GPU Memory:
 - **40GB+**: Llama 3.1 70B (best quality)
 - **20GB+**: Llama 3.1 8B (recommended)  
 - **15GB+**: Mistral 7B (fast)
 - **10GB+**: Llama 3.2 3B (light)
 - **<10GB**: Use quantization (8-bit/4-bit)
+
+### Emergency Commands:
+```python
+# If everything breaks, restart and minimal install:
+!pip install gradio==4.28.3 transformers accelerate
+!pip install pdfplumber sentence-transformers chromadb
+
+# Then try again
+```
 """
     
     with open("colab_startup.md", "w", encoding="utf-8") as f:
@@ -191,7 +305,7 @@ def main():
         print("⚠️ This script is optimized for Google Colab")
         print("For local installation, use requirements.txt")
     
-    # Install packages
+    # Install packages with gradio fix
     install_packages()
     
     # Setup HuggingFace
@@ -200,19 +314,32 @@ def main():
     # Check GPU
     check_gpu()
     
-    # Create startup guide
+    # Create startup guide with troubleshooting
     create_startup_notebook()
+    
+    # Provide manual fix options
+    fix_gradio_manual()
     
     print("\n🎉 Setup completed!")
     print("\n📋 Next steps:")
-    print("1. Check colab_startup.md for usage instructions")
-    print("2. Get HuggingFace token if using Llama models")
-    print("3. Run: python chat_bot.py")
-    print("4. Access the interface with share=True for public URL")
+    print("1. Check colab_startup.md for detailed instructions")
+    print("2. If gradio import fails, check gradio_fix_commands.txt")
+    print("3. Get HuggingFace token if using Llama models")
+    print("4. Run: python chat_bot.py")
     
-    print("\n⚠️ If you see dependency conflicts:")
-    print("- Restart runtime (Runtime → Restart runtime)")
+    print("\n⚠️ If you STILL see gradio errors:")
+    print("- Runtime → Restart runtime")
+    print("- Run: !pip install gradio==4.28.3")
     print("- Run this script again")
+    print("- Check gradio_fix_commands.txt for more options")
+    
+    # Final import test
+    try:
+        import gradio as gr
+        print("\n✅ Final check: Gradio imported successfully!")
+    except Exception as e:
+        print(f"\n❌ Final check failed: {e}")
+        print("📋 Use manual fix commands from gradio_fix_commands.txt")
 
 if __name__ == "__main__":
     main() 
