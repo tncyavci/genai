@@ -373,14 +373,19 @@ class PDFChatBot:
         except Exception as e:
             return f"❌ İstatistik alınamadı: {str(e)}"
 
-def create_streamlit_interface():
-    """Create Streamlit interface with LLM model selection"""
+def main():
+    """Main Streamlit application"""
     
-    # Create interface
+    # Initialize session state
+    if 'chatbot' not in st.session_state:
+        st.session_state.chatbot = None
+    if 'chat_history' not in st.session_state:
+        st.session_state.chat_history = []
+    if 'model_initialized' not in st.session_state:
+        st.session_state.model_initialized = False
+    
+    # Title
     st.title("📄💬 PDF ChatBot - Local LLM")
-    
-    # Global bot variable
-    bot = None
     
     st.markdown("""
     **Finansal dokümanlarınızı yükleyin ve Local LLM ile sorularınızı sorun!**
@@ -391,195 +396,182 @@ def create_streamlit_interface():
     - 🔒 Tamamen local (internet gerekmez)
     """)
     
+    # Sidebar for model configuration
     with st.sidebar:
-        st.markdown("### 🎯 LLM Model Seçimi")
-        
-        model_choice = st.selectbox(
-            "Model Seçin",
-            options=list(RECOMMENDED_MODELS.keys()) if LOCAL_LLM_AVAILABLE else ["local_not_available"],
-            index=0 if LOCAL_LLM_AVAILABLE else 1,
-            disabled=not LOCAL_LLM_AVAILABLE
-        )
+        st.header("⚙️ Model Ayarları")
         
         if LOCAL_LLM_AVAILABLE:
-            # Model bilgileri
-            model_info = st.markdown("")
-            
-            def update_model_info(model_choice):
-                if model_choice in RECOMMENDED_MODELS:
-                    config = RECOMMENDED_MODELS[model_choice]
-                    return f"""
-                    **📊 Model Bilgileri:**
-                    - **İsim:** {config['name']}
-                    - **Memory:** {config['memory']}
-                    - **Açıklama:** {config['description']}
-                    """
-                return "Model bilgisi bulunamadı."
-            
-            model_choice = st.selectbox(
-                "Model Seçin",
-                options=list(RECOMMENDED_MODELS.keys()) if LOCAL_LLM_AVAILABLE else ["local_not_available"],
-                index=0 if LOCAL_LLM_AVAILABLE else 1,
-                disabled=not LOCAL_LLM_AVAILABLE
-            )
-            
-            model_info.empty()
-            model_info.markdown(update_model_info(model_choice))
-            
-            # Initialize with default
-            model_choice = model_choice if LOCAL_LLM_AVAILABLE else "fallback"
-            
-            init_btn = st.button("🚀 ChatBot'u Başlat", key="init_btn")
-            init_status = st.markdown("")
-            
-            def initialize_bot():
-                try:
-                    global bot
-                    bot = PDFChatBot(
-                        use_local_llm=LOCAL_LLM_AVAILABLE,
-                        model_choice=model_choice if LOCAL_LLM_AVAILABLE else "fallback"
-                    )
-                    
-                    llm_info = bot.llm_service.get_service_info()
-                    
-                    return f"""
-                    ✅ **ChatBot başarıyla başlatıldı!**
-                    
-                    **🤖 Aktif LLM:**
-                    - Tip: {llm_info['service_type']}
-                    - Model: {llm_info['model_name']}
-                    - Durum: {llm_info['status']}
-                    
-                    💬 Artık PDF yükleyip soru sorabilirsiniz!
-                    """
-                    
-                except Exception as e:
-                    return f"❌ ChatBot başlatılamadı: {str(e)}"
-            
-            init_status.empty()
-            init_status.markdown(init_btn(initialize_bot))
+            model_choices = list(RECOMMENDED_MODELS.keys())
+            default_model = "llama_3_1_8b"
+        else:
+            model_choices = ["local_not_available"]
+            default_model = "local_not_available"
         
-    with st.container():
-        st.markdown("### 💬 Sohbet")
-        chatbot = st.empty()
-        
-        msg = st.text_area(
-            "Sorunuzu yazın...",
-            placeholder="Örn: Şirketin 2024 yılı net kârı ne kadar?",
-            height=100
+        selected_model = st.selectbox(
+            "🎯 LLM Model Seçin:",
+            model_choices,
+            index=model_choices.index(default_model) if default_model in model_choices else 0
         )
         
-        with st.container():
-            st.markdown("### 📊 İstatistikler")
-            stats_display = st.empty()
-            refresh_stats_btn = st.button("🔄 Yenile")
+        # Display model info
+        if LOCAL_LLM_AVAILABLE and selected_model in RECOMMENDED_MODELS:
+            config = RECOMMENDED_MODELS[selected_model]
+            st.markdown(f"""
+            **📊 Model Bilgileri:**
+            - **İsim:** {config['name']}
+            - **Memory:** {config['memory']}
+            - **Açıklama:** {config['description']}
+            """)
+        elif not LOCAL_LLM_AVAILABLE:
+            st.error("❌ **Local LLM mevcut değil**\n\nGerekli kütüphaneleri yükleyin:\n`pip install transformers accelerate torch`")
         
-    with st.container():
-        st.markdown("### 📁 Dosya Yükle")
-        file_upload = st.file(
-            "PDF Dosyası Seçin",
-            type="application/pdf"
-        )
+        # Initialize button
+        if st.button("🚀 ChatBot'u Başlat", type="primary", disabled=st.session_state.model_initialized):
+            if not LOCAL_LLM_AVAILABLE and selected_model != "local_not_available":
+                st.error("Local LLM servisi mevcut değil!")
+            else:
+                with st.spinner("Model yükleniyor..."):
+                    try:
+                        st.session_state.chatbot = PDFChatBot(
+                            use_local_llm=LOCAL_LLM_AVAILABLE,
+                            model_choice=selected_model if LOCAL_LLM_AVAILABLE else "fallback"
+                        )
+                        
+                        llm_info = st.session_state.chatbot.llm_service.get_service_info()
+                        st.session_state.model_initialized = True
+                        
+                        st.success(f"""
+                        ✅ **ChatBot başarıyla başlatıldı!**
+                        
+                        **🤖 Aktif LLM:**
+                        - Tip: {llm_info['service_type']}
+                        - Model: {llm_info['model_name']}
+                        - Durum: {llm_info['status']}
+                        
+                        💬 Artık PDF yükleyip soru sorabilirsiniz!
+                        """)
+                        
+                    except Exception as e:
+                        st.error(f"❌ ChatBot başlatılamadı: {str(e)}")
         
-        upload_btn = st.button("📤 Yükle ve İşle", key="upload_btn")
-        upload_status = st.empty()
+        # Stats section
+        st.header("📊 İstatistikler")
+        if st.session_state.chatbot:
+            try:
+                stats_text = st.session_state.chatbot.get_stats()
+                st.markdown(stats_text)
+            except:
+                st.info("İstatistik alınamadı")
+        else:
+            st.info("ChatBot başlatılmadı")
     
-    with st.container():
-        st.markdown("ℹ️ Kullanım Rehberi")
-        st.markdown(f"""
+    # Main content area with tabs
+    tab1, tab2, tab3 = st.tabs(["💬 Sohbet", "📁 PDF Yükle", "ℹ️ Rehber"])
+    
+    with tab1:
+        # Chat interface
+        st.header("💬 Sohbet")
+        
+        # Display chat history
+        for i, (user_msg, bot_msg) in enumerate(st.session_state.chat_history):
+            with st.chat_message("user"):
+                st.write(user_msg)
+            with st.chat_message("assistant"):
+                st.write(bot_msg)
+        
+        # Chat input
+        if prompt := st.chat_input("Sorunuzu yazın..."):
+            if not st.session_state.model_initialized:
+                st.error("❌ Önce ChatBot'u başlatın (Sol menüden)")
+            else:
+                # Add user message to chat history
+                st.session_state.chat_history.append([prompt, ""])
+                
+                with st.spinner("Cevap üretiliyor..."):
+                    try:
+                        # Get response
+                        _, updated_history = st.session_state.chatbot.chat(prompt, st.session_state.chat_history)
+                        st.session_state.chat_history = updated_history
+                        st.rerun()
+                    except Exception as e:
+                        st.error(f"Hata: {e}")
+        
+        # Clear chat button
+        if st.button("🗑️ Sohbeti Temizle"):
+            st.session_state.chat_history = []
+            if st.session_state.chatbot:
+                st.session_state.chatbot.chat_history = []
+            st.rerun()
+    
+    with tab2:
+        # File upload section
+        st.header("📁 PDF Dosyası Yükle")
+        
+        uploaded_file = st.file_uploader(
+            "PDF dosyası seçin:",
+            type=['pdf'],
+            help="Analiz etmek istediğiniz PDF dosyasını yükleyin"
+        )
+        
+        if st.button("📤 Yükle ve İşle", type="primary"):
+            if not st.session_state.model_initialized:
+                st.error("❌ Önce ChatBot'u başlatın")
+            elif uploaded_file is not None:
+                with st.spinner("PDF işleniyor..."):
+                    try:
+                        result = st.session_state.chatbot.process_pdf_file(uploaded_file)
+                        if "✅" in result:
+                            st.success(result)
+                        else:
+                            st.error(result)
+                    except Exception as e:
+                        st.error(f"PDF işleme hatası: {e}")
+            else:
+                st.warning("Lütfen bir PDF dosyası seçin")
+    
+    with tab3:
+        # Usage guide
+        st.header("ℹ️ Kullanım Rehberi")
+        
+        st.markdown("""
         ## 🚀 Nasıl Kullanılır?
         
         ### 1. Model Seçimi
-        - "🎯 LLM Model Seçimi" sekmesinden istediğiniz modeli seçin
+        - Sol menüden istediğiniz modeli seçin
         - **Önerilen:** Llama 3.1 8B (dengeli performans)
         - **Hızlı:** Mistral 7B (düşük memory)
         - "🚀 ChatBot'u Başlat" butonuna tıklayın
         
         ### 2. PDF Yükleme  
-        - "📁 Dosya Yükle" sekmesinden PDF dosyanızı seçin
+        - "📁 PDF Yükle" sekmesinden PDF dosyanızı seçin
         - "📤 Yükle ve İşle" butonuna tıklayın
         - İşlem tamamlanana kadar bekleyin
         
         ### 3. Soru Sorma
         - "💬 Sohbet" sekmesine gidin
-        - Sorunuzu metin kutusuna yazın
-        - "📤 Gönder" butonuna tıklayın
-        
-        ### 🎯 Model Önerileri
-        
-        **🏆 Llama 3.1 8B** (Önerilen)
-        - Memory: ~16GB
-        - Türkçe desteği mükemmel
-        - Finansal analiz için optimize
-        
-        **⚡ Mistral 7B** (Hızlı)
-        - Memory: ~14GB  
-        - Daha hızlı inference
-        - Kod üretme konusunda güçlü
-        
-        **💪 Llama 3.1 70B** (Güçlü)
-        - Memory: ~40GB
-        - En iyi reasoning
-        - Sadece yüksek GPU memory'de çalışır
-        
-        ### 🔧 Teknik Gereksinimler
-        - **GPU Memory:** Model seçimine göre 14-40GB
-        - **Python Packages:** transformers, accelerate, torch
-        - **Platform:** Google Colab Pro Plus ideal
-        
-        ### ⚠️ Önemli Notlar
-        - İlk model yüklemesi 2-5 dakika sürer
-        - Model cache edilir, sonraki başlatmalar hızlıdır
-        - Local model kullanımı tamamen offline çalışır
-        
-        Local LLM Mevcut: **{"✅ Evet" if LOCAL_LLM_AVAILABLE else "❌ Hayır"}**
+        - Sorunuzu chat input'a yazın
+        - Enter'a basın veya gönder butonuna tıklayın
         """)
-    
-    # Event handlers
-    def handle_send(message, history):
-        if bot is None:
-            return "", history + [["", "❌ Önce ChatBot'u başlatın (Model Ayarları sekmesi)"]]
-        return bot.chat(message, history)
-    
-    def handle_upload(file):
-        if bot is None:
-            return "❌ Önce ChatBot'u başlatın (Model Ayarları sekmesi)"
-        return bot.process_pdf_file(file)
-    
-    def handle_stats_refresh():
-        if bot is None:
-            return "❌ ChatBot henüz başlatılmadı"
-        return bot.get_stats()
-    
-    def clear_chat():
-        return []
-    
-    # Connect events
-    if upload_btn:
-        upload_status.empty()
-        upload_status.markdown(handle_upload(file_upload))
-    
-    if refresh_stats_btn:
-        stats_display.empty()
-        stats_display.markdown(handle_stats_refresh())
-    
-    if msg:
-        chatbot.empty()
-        chatbot.markdown(handle_send(msg, chatbot.markdown))
-    
-    if msg:
-        msg = st.text_area(
-            "Sorunuzu yazın...",
-            placeholder="Örn: Şirketin 2024 yılı net kârı ne kadar?",
-            height=100
-        )
-    
-    if msg:
-        msg = st.text_area(
-            "Sorunuzu yazın...",
-            placeholder="Örn: Şirketin 2024 yılı net kârı ne kadar?",
-            height=100
-        )
+        
+        with st.expander("🎯 Model Önerileri"):
+            st.markdown(f"""
+            **🏆 Llama 3.1 8B** (Önerilen)
+            - Memory: ~16GB
+            - Türkçe desteği mükemmel
+            - Finansal analiz için optimize
+            
+            **⚡ Mistral 7B** (Hızlı)
+            - Memory: ~14GB  
+            - Daha hızlı inference
+            - Kod üretme konusunda güçlü
+            
+            **💪 Llama 3.1 70B** (Güçlü)
+            - Memory: ~40GB
+            - En iyi reasoning
+            - Sadece yüksek GPU memory'de çalışır
+            
+            **Local LLM Mevcut:** {"✅ Evet" if LOCAL_LLM_AVAILABLE else "❌ Hayır"}
+            """)
 
 if __name__ == "__main__":
     # Check for required libraries
@@ -590,24 +582,5 @@ if __name__ == "__main__":
         logger.error("❌ Streamlit not installed. Run: pip install streamlit")
         exit(1)
     
-    # Create and launch interface
-    logger.info("🚀 Starting PDF ChatBot with Local LLM support...")
-    
-    demo = create_streamlit_interface()
-    
-    # Launch with configuration
-    # Detect if running in Colab
-    is_colab = False
-    try:
-        import google.colab
-        is_colab = True
-        logger.info("🔍 Google Colab detected")
-    except ImportError:
-        logger.info("💻 Running locally")
-    
-    demo.launch(
-        server_name="0.0.0.0",
-        server_port=7860,
-        share=is_colab,  # Auto-enable share for Colab
-        debug=not is_colab  # Disable debug in Colab for cleaner output
-    ) 
+    # Run the main app
+    main() 
