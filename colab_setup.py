@@ -35,51 +35,39 @@ def install_packages():
     
     print("🚀 Starting Google Colab setup for PDF ChatBot...")
     
-    # First, handle gradio compatibility issue with AGGRESSIVE approach
-    print("🔧 Fixing Gradio compatibility with aggressive approach...")
+    # Streamlit is much more stable than gradio - no compatibility issues!
+    print("🎉 Installing Streamlit (stable web framework)...")
     
-    # More aggressive gradio fix - use older stable versions
-    gradio_commands = [
-        "pip uninstall -y gradio gradio-client",
-        "pip install --no-cache-dir gradio==4.26.0",  # Older but stable version
-        "pip install --no-cache-dir gradio-client==0.12.0",  # Compatible client
+    # Install streamlit - much simpler and more reliable
+    streamlit_commands = [
+        "pip install --no-cache-dir streamlit>=1.28.0",
     ]
     
-    for cmd in gradio_commands:
+    for cmd in streamlit_commands:
         print(f"Running: {cmd}")
         run_command(cmd, ignore_errors=True)
     
-    # Test gradio import
-    print("🧪 Testing gradio import...")
+    # Test streamlit import
+    print("🧪 Testing streamlit import...")
     try:
-        import gradio as gr
-        print("✅ Gradio imported successfully!")
-        print(f"✅ Gradio version: {gr.__version__}")
+        import streamlit as st
+        print("✅ Streamlit imported successfully!")
+        print(f"✅ Streamlit version: {st.__version__}")
     except Exception as e:
-        print(f"⚠️ Gradio import failed: {e}")
-        print("🔄 Trying emergency fix...")
+        print(f"⚠️ Streamlit import failed: {e}")
+        print("🔄 Trying alternative install...")
         
-        # Emergency fix commands - even older versions
-        emergency_commands = [
-            "pip uninstall -y gradio gradio-client",
-            "pip install --no-cache-dir gradio==4.16.0",  # Very stable old version
-            "pip install --no-cache-dir gradio-client==0.8.1",
-        ]
+        # Alternative install if needed
+        run_command("pip install --upgrade streamlit", ignore_errors=True)
         
-        for cmd in emergency_commands:
-            print(f"Running emergency fix: {cmd}")
-            run_command(cmd, ignore_errors=True)
-            
-        # Test again
         try:
-            import gradio as gr
-            print("✅ Gradio fixed with emergency approach!")
-            print(f"✅ Gradio version: {gr.__version__}")
+            import streamlit as st
+            print("✅ Streamlit fixed with alternative approach!")
+            print(f"✅ Streamlit version: {st.__version__}")
         except Exception as e2:
-            print(f"❌ Emergency fix also failed: {e2}")
-            print("🆘 Will create manual fix file...")
+            print(f"❌ Streamlit install failed: {e2}")
     
-    # Essential packages (without gradio since we handled it above)
+    # Essential packages
     essential_packages = [
         "transformers>=4.30.0",
         "accelerate>=0.20.0", 
@@ -160,43 +148,31 @@ def check_gpu():
     else:
         print("⚠️ No GPU detected - Local LLM will be very slow")
 
-def fix_gradio_manual():
-    """Manual gradio fix function"""
-    print("🚨 Manual Gradio Fix Options:")
-    print("\nIf gradio import still fails, try these commands in order:")
+def fix_streamlit_manual():
+    """Manual streamlit fix function (usually not needed)"""
+    print("🔧 Manual Streamlit Fix Options (if needed):")
+    print("\nStreamlit is much more stable than gradio, but if you have issues:")
     
     commands = [
-        "# EMERGENCY FIX - Most stable versions",
-        "!pip uninstall -y gradio gradio-client",
-        "!pip install --no-cache-dir gradio==4.16.0 gradio-client==0.8.1",
+        "# Option 1: Clean install",
+        "!pip uninstall -y streamlit",
+        "!pip install streamlit>=1.28.0",
         "",
-        "# Option 1: Alternative stable versions",
-        "!pip uninstall -y gradio gradio-client", 
-        "!pip install --no-cache-dir gradio==4.26.0 gradio-client==0.12.0",
+        "# Option 2: Force latest version", 
+        "!pip install --upgrade --force-reinstall streamlit",
         "",
-        "# Option 2: Force older compatible versions", 
-        "!pip install --force-reinstall --no-cache-dir gradio==4.20.0",
-        "!pip install --no-deps gradio-client==0.10.0",
+        "# Option 3: Alternative version",
+        "!pip install streamlit==1.30.0",
         "",
-        "# Option 3: Latest with manual client fix",
-        "!pip install gradio",
-        "!pip uninstall -y gradio-client",
-        "!pip install gradio-client==0.8.1",
-        "",
-        "# Option 4: Nuclear option - restart runtime",
-        "# Runtime → Restart runtime",
-        "# !pip install gradio==4.16.0",
-        "# Then run setup again",
-        "",
-        "# Test command after each attempt:",
-        "import gradio as gr",
-        "print(f'Gradio version: {gr.__version__}')"
+        "# Test command:",
+        "import streamlit as st",
+        "print(f'Streamlit version: {st.__version__}')"
     ]
     
-    with open("gradio_emergency_fix.txt", "w") as f:
+    with open("streamlit_fix_commands.txt", "w") as f:
         f.write("\n".join(commands))
     
-    print("📝 Emergency commands saved to gradio_emergency_fix.txt")
+    print("📝 Commands saved to streamlit_fix_commands.txt")
     
     for cmd in commands:
         print(cmd)
@@ -205,35 +181,15 @@ def create_startup_notebook():
     """Create a startup notebook for Colab"""
     
     notebook_content = """
-# PDF ChatBot - Google Colab Setup
+# PDF ChatBot - Google Colab Setup (Streamlit Version)
 
-## 1. Initial Setup & Fix Dependencies
+## 1. Initial Setup
 ```python
 # Run the setup script
 !python colab_setup.py
 ```
 
-## 2. Manual Gradio Fix (if needed)
-```python
-# If you get gradio import errors, try these in order:
-
-# Option 1: Clean reinstall 
-!pip uninstall -y gradio gradio-client
-!pip install gradio==4.44.0 gradio-client==1.3.0
-
-# Option 2: Alternative versions
-!pip install gradio==4.28.3
-!pip install --no-deps gradio-client==0.15.0
-
-# Option 3: Force latest
-!pip install --upgrade --force-reinstall gradio gradio-client
-
-# Test import
-import gradio as gr
-print("✅ Gradio working!")
-```
-
-## 3. Check GPU (Important!)
+## 2. Check GPU (Important!)
 ```python
 import torch
 print(f"GPU: {torch.cuda.is_available()}")
@@ -242,27 +198,36 @@ if torch.cuda.is_available():
     print(f"Memory: {torch.cuda.get_device_properties(0).total_memory / 1e9:.1f}GB")
 ```
 
-## 4. HuggingFace Login (for Llama models)
+## 3. HuggingFace Login (for Llama models)
 ```python
 # Get token from: https://huggingface.co/settings/tokens
 from huggingface_hub import login
 login(token="your_token_here")
 ```
 
-## 5. Start ChatBot
+## 4. Start ChatBot with Streamlit
 ```python
-# Method 1: Direct run with public URL
-!python chat_bot.py &
+# Method 1: Direct run (creates public tunnel automatically in Colab)
+!streamlit run chat_bot_streamlit.py &
 
-# Method 2: Programmatic with custom settings
-from chat_bot import create_gradio_interface
-demo = create_gradio_interface()
-demo.launch(
-    share=True,          # Creates public URL for Colab
-    debug=False,
-    server_port=7860,
-    server_name="0.0.0.0"
-)
+# Method 2: With custom port
+!streamlit run chat_bot_streamlit.py --server.port 8501 &
+
+# Method 3: Check if running
+!ps aux | grep streamlit
+```
+
+## 5. Access Your App
+```python
+# Streamlit will automatically create a public URL in Colab
+# Look for the "External URL" in the output above
+# It will be something like: https://xyz.streamlit.app
+
+# Or use ngrok for custom domain:
+!pip install pyngrok
+from pyngrok import ngrok
+public_url = ngrok.connect(8501)
+print(f"Public URL: {public_url}")
 ```
 
 ## 6. Memory Management (if needed)
@@ -284,7 +249,7 @@ if torch.cuda.is_available():
 ## 7. Troubleshooting
 
 ### Common Issues:
-1. **Gradio import error**: Use manual fix commands above
+1. **Streamlit not starting**: Check if port 8501 is free
 2. **Memory error**: Restart runtime, use smaller model
 3. **HuggingFace error**: Check token, accept model terms
 4. **Slow loading**: Use quantized models (4-bit/8-bit)
@@ -296,20 +261,31 @@ if torch.cuda.is_available():
 - **10GB+**: Llama 3.2 3B (light)
 - **<10GB**: Use quantization (8-bit/4-bit)
 
-### Emergency Commands:
+### Streamlit Commands:
 ```python
-# If everything breaks, restart and minimal install:
-!pip install gradio==4.28.3 transformers accelerate
-!pip install pdfplumber sentence-transformers chromadb
+# Stop streamlit
+!pkill -f streamlit
 
-# Then try again
+# Restart streamlit
+!streamlit run chat_bot_streamlit.py --server.port 8501 &
+
+# Check streamlit processes
+!ps aux | grep streamlit
 ```
+
+### Advantages of Streamlit over Gradio:
+- ✅ **No dependency conflicts** (major win!)
+- ✅ **Better file uploads** and handling
+- ✅ **More stable** in Google Colab
+- ✅ **Better session management**
+- ✅ **Cleaner UI** and better UX
+- ✅ **Built-in responsive design**
 """
     
-    with open("colab_startup.md", "w", encoding="utf-8") as f:
+    with open("colab_startup_streamlit.md", "w", encoding="utf-8") as f:
         f.write(notebook_content)
     
-    print("📝 Created colab_startup.md with usage instructions")
+    print("📝 Created colab_startup_streamlit.md with usage instructions")
 
 def main():
     """Main setup function"""
@@ -331,28 +307,28 @@ def main():
     create_startup_notebook()
     
     # Provide manual fix options
-    fix_gradio_manual()
+    fix_streamlit_manual()
     
     print("\n🎉 Setup completed!")
     print("\n📋 Next steps:")
-    print("1. Check colab_startup.md for detailed instructions")
-    print("2. If gradio import fails, check gradio_emergency_fix.txt")
+    print("1. Check colab_startup_streamlit.md for detailed instructions")
+    print("2. If streamlit import fails, check streamlit_emergency_fix.txt")
     print("3. Get HuggingFace token if using Llama models")
-    print("4. Run: python chat_bot.py")
+    print("4. Run: streamlit run chat_bot_streamlit.py")
     
-    print("\n⚠️ If you STILL see gradio errors:")
+    print("\n⚠️ If you STILL see streamlit errors:")
     print("- Runtime → Restart runtime")
-    print("- Run: !pip install gradio==4.28.3")
+    print("- Run: !pip install streamlit==4.28.3")
     print("- Run this script again")
-    print("- Check gradio_emergency_fix.txt for more options")
+    print("- Check streamlit_emergency_fix.txt for more options")
     
     # Final import test
     try:
-        import gradio as gr
-        print("\n✅ Final check: Gradio imported successfully!")
+        import streamlit as st
+        print("\n✅ Final check: Streamlit imported successfully!")
     except Exception as e:
         print(f"\n❌ Final check failed: {e}")
-        print("📋 Use manual fix commands from gradio_emergency_fix.txt")
+        print("📋 Use manual fix commands from streamlit_emergency_fix.txt")
 
 if __name__ == "__main__":
     main() 

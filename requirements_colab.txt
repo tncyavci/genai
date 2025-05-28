@@ -1,5 +1,5 @@
 # Google Colab Compatible Requirements
-# No version conflicts with Colab's built-in packages
+# Streamlit version - No gradio dependency conflicts
 
 # PDF Processing (minimal versions)
 pdfplumber>=0.7.0
@@ -19,9 +19,8 @@ openai>=1.0.0
 # pandas (already in Colab)
 # numpy (already in Colab)
 
-# Web Interface (with client dependency)
-gradio>=4.0.0
-gradio-client>=0.10.0
+# Web Interface - STREAMLIT (much more stable than gradio)
+streamlit>=1.28.0
 
 # Utilities
 python-dotenv>=1.0.0
