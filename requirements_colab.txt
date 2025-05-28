@@ -1,7 +1,7 @@
 # Google Colab Compatible Requirements
-# Streamlit version - No gradio dependency conflicts
+# Streamlit version (gradio replacement)
 
-# PDF Processing (minimal versions)
+# PDF Processing
 pdfplumber>=0.7.0
 PyPDF2>=2.0.0
 
@@ -15,17 +15,12 @@ chromadb>=0.4.0
 # LLM APIs (optional)
 openai>=1.0.0
 
-# Data Processing (Colab already has these, but specify if needed)
-# pandas (already in Colab)
-# numpy (already in Colab)
-
-# Web Interface - STREAMLIT (much more stable than gradio)
+# Web Interface - Streamlit (replaces gradio)
 streamlit>=1.28.0
 
 # Utilities
 python-dotenv>=1.0.0
-tqdm  # already in Colab
 
 # Acceleration for local models
 accelerate>=0.20.0
-bitsandbytes>=0.40.0  # for quantization 
+bitsandbytes>=0.40.0 
