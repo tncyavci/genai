@@ -208,10 +208,10 @@ login(token="your_token_here")
 ## 4. Start ChatBot with Streamlit
 ```python
 # Method 1: Direct run (creates public tunnel automatically in Colab)
-!streamlit run chat_bot_streamlit.py &
+!streamlit run chat_bot.py &
 
 # Method 2: With custom port
-!streamlit run chat_bot_streamlit.py --server.port 8501 &
+!streamlit run chat_bot.py --server.port 8501 &
 
 # Method 3: Check if running
 !ps aux | grep streamlit
@@ -267,7 +267,7 @@ if torch.cuda.is_available():
 !pkill -f streamlit
 
 # Restart streamlit
-!streamlit run chat_bot_streamlit.py --server.port 8501 &
+!streamlit run chat_bot.py --server.port 8501 &
 
 # Check streamlit processes
 !ps aux | grep streamlit
@@ -314,7 +314,7 @@ def main():
     print("1. Check colab_startup_streamlit.md for detailed instructions")
     print("2. If streamlit import fails, check streamlit_emergency_fix.txt")
     print("3. Get HuggingFace token if using Llama models")
-    print("4. Run: streamlit run chat_bot_streamlit.py")
+    print("4. Run: streamlit run chat_bot.py")
     
     print("\n⚠️ If you STILL see streamlit errors:")
     print("- Runtime → Restart runtime")
