@@ -274,6 +274,44 @@ class TextProcessor:
         
         return embedded_chunks
     
+    def process_excel_sheets(self, sheets: List, source_file: str) -> List[EmbeddedChunk]:
+        """
+        Process Excel sheets and return embedded chunks
+        Each sheet becomes a separate 'page' for chunking
+        """
+        all_chunks = []
+        
+        for sheet_idx, sheet_content in enumerate(sheets, 1):
+            # Handle ExcelSheetContent objects
+            if hasattr(sheet_content, 'text_content'):
+                text = sheet_content.text_content
+                sheet_name = sheet_content.sheet_name
+                page_num = sheet_idx
+            else:
+                # Fallback for other formats
+                text = str(sheet_content)
+                sheet_name = f"Sheet_{sheet_idx}"
+                page_num = sheet_idx
+            
+            # Create chunks with Excel-specific metadata
+            sheet_chunks = self.chunker.chunk_text(text, source_file, page_num)
+            
+            # Add Excel-specific metadata to chunks
+            for chunk in sheet_chunks:
+                chunk.metadata.update({
+                    'content_type': 'excel',
+                    'sheet_name': sheet_name,
+                    'sheet_index': sheet_idx
+                })
+            
+            all_chunks.extend(sheet_chunks)
+        
+        # Generate embeddings
+        embedded_chunks = self.embedding_service.embed_chunks(all_chunks)
+        
+        logger.info(f"Created {len(embedded_chunks)} embedded chunks from {len(sheets)} Excel sheets")
+        return embedded_chunks
+    
     def get_processing_stats(self, embedded_chunks: List[EmbeddedChunk]) -> Dict:
         """
         Generate processing statistics

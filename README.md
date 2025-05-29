@@ -267,3 +267,43 @@ Sorunlarınız için:
 ---
 
 **⭐ Projeyi beğendiyseniz yıldız vermeyi unutmayın!** 
+
+# PDF & Excel ChatBot - Local LLM
+
+**Finansal dokümanlar ve Excel dosyaları için Local LLM ile RAG sistemi**
+
+Bu proje PDF dosyalarına ve Excel tablolarına (XLS/XLSX) sorular sorabileceğiniz, tamamen local çalışan bir ChatBot sistemidir.
+
+## 🚀 Yeni Özellik: Excel Desteği!
+
+Artık Excel dosyalarınızı da yükleyip analiz edebilirsiniz:
+- ✅ .xls, .xlsx, .xlsm formatları
+- ✅ Çoklu sayfa desteği  
+- ✅ Otomatik sayısal analiz
+- ✅ Aranabilir metin formatına dönüştürme
+
+## ✨ Özellikler
+
+### 📄 Desteklenen Dosya Formatları
+- **PDF**: Metin ve tablo çıkarma
+- **Excel**: XLS, XLSX, XLSM dosyaları
+- **Çoklu sayfa**: Tüm sayfalar otomatik işlenir
+
+### 🤖 LLM Desteği  
+- **GGUF Modeller**: Mistral 7B (önerilen)
+- **HuggingFace Modeller**: Llama 3.1 8B
+- **OpenAI API**: Yedek seçenek
+
+### 🧠 RAG Sistemi
+- **Akıllı metin parçalama**: Overlap ile chunking
+- **Vector Store**: ChromaDB ile embedding storage  
+- **Çokdilli**: Türkçe ve İngilizce desteği
+- **Metadata**: Kaynak dosya ve sayfa takibi
+
+## 📊 Excel İşleme Özellikleri
+
+- **Tüm sayfaları okur**: Multi-sheet Excel dosyaları
+- **Sayısal analiz**: Otomatik istatistikler (toplam, ortalama, min, max)
+- **Metin dönüştürme**: Aranabilir format
+- **Metadata korunması**: Sütun adları ve veri tipleri
+- **Temizleme**: Boş satır/sütunları otomatik kaldırır 

@@ -20,8 +20,8 @@ logger = logging.getLogger(__name__)
 
 # Page configuration
 st.set_page_config(
-    page_title="PDF ChatBot - Local LLM",
-    page_icon="📄💬",
+    page_title="PDF & Excel ChatBot - Local LLM",
+    page_icon="📊💬",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -30,6 +30,7 @@ st.set_page_config(
 from pdf_processor import PDFProcessor
 from text_processor import TextProcessor
 from vector_store import VectorStore, RetrievalService
+from excel_processor import ExcelProcessor
 
 # Try to import local LLM service
 try:
@@ -338,6 +339,7 @@ class PDFChatBot:
     def __init__(self, use_local_llm: bool = True, model_choice: str = "llama_3_1_8b", gguf_model_path: str = None):
         # Initialize components
         self.pdf_processor = PDFProcessor()
+        self.excel_processor = ExcelProcessor()
         self.text_processor = TextProcessor(chunk_size=800, overlap_size=150)
         self.vector_store = VectorStore()
         self.retrieval_service = RetrievalService(
@@ -420,6 +422,79 @@ class PDFChatBot:
         except Exception as e:
             logger.error(f"PDF processing failed: {e}")
             return f"❌ PDF işlenemedi: {str(e)}"
+    
+    def process_excel_file(self, excel_file) -> str:
+        """Process uploaded Excel file and add to vector store"""
+        if excel_file is None:
+            return "❌ Lütfen bir Excel dosyası yükleyin."
+        
+        # Check if file already processed
+        if excel_file.name in self.processed_files:
+            return f"ℹ️ {excel_file.name} zaten işlenmiş. Yeni sorular sorabilirsiniz."
+        
+        try:
+            # Save uploaded file temporarily
+            with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(excel_file.name)[1]) as tmp_file:
+                tmp_file.write(excel_file.read())
+                temp_path = tmp_file.name
+            
+            # Process Excel
+            logger.info(f"Processing uploaded Excel: {excel_file.name}")
+            excel_result = self.excel_processor.process_excel(temp_path)
+            
+            # Generate embeddings and add to vector store
+            embedded_chunks = self.text_processor.process_excel_sheets(
+                excel_result.sheets, 
+                excel_file.name
+            )
+            
+            # Add to vector store
+            self.vector_store.add_documents(embedded_chunks)
+            
+            # Track processed file
+            self.processed_files.append(excel_file.name)
+            
+            # Clean up temp file
+            os.unlink(temp_path)
+            
+            # Generate summary
+            summary_data = self.excel_processor.get_excel_summary(excel_result)
+            
+            # Log vector store status
+            vector_stats = self.retrieval_service.get_retrieval_stats()
+            logger.info(f"Vector store now contains {vector_stats['vector_store_stats'].get('total_documents', 0)} documents")
+            
+            # Calculate processing statistics
+            total_text_length = sum(len(sheet.text_content) for sheet in excel_result.sheets)
+            sheet_names = [sheet.sheet_name for sheet in excel_result.sheets]
+            
+            summary = f"""
+            ✅ **Excel dosyası başarıyla işlendi!**
+            
+            📊 **İstatistikler:**
+            - 📄 Sayfa sayısı: {summary_data['total_sheets']}
+            - 📝 Toplam satır: {summary_data['total_rows']}
+            - 📋 Toplam sütun: {summary_data['total_columns']}
+            - 🔢 Sayısal sütunlar: {summary_data['total_numeric_columns']}
+            - 🧩 Toplam chunk: {len(embedded_chunks)}
+            - 📝 Toplam karakter: {total_text_length:,}
+            - 🗃️ Vector store'da: {vector_stats['vector_store_stats'].get('total_documents', 0)} chunk
+            - 📊 Sayfalar: {', '.join(sheet_names)}
+            
+            💬 Artık bu Excel dosyasındaki verilere dair sorular sorabilirsiniz!
+            
+            **📋 Örnek Sorular:**
+            - "Hangi sayfalarda hangi veriler var?"
+            - "Toplam satır sayısı kaç?"
+            - "En yüksek değer nedir?"
+            - "Tablo verilerini özetle"
+            """
+            
+            return summary
+            
+        except Exception as e:
+            logger.error(f"Excel processing failed: {e}")
+            return f"❌ Excel dosyası işlenemedi: {str(e)}"
     
     def chat(self, query: str, chat_history_display: List[List[str]]) -> Tuple[str, List[List[str]]]:
         """Handle chat interaction"""
@@ -644,13 +719,14 @@ def main():
         st.session_state.current_query = ""
     
     # Title
-    st.title("📄💬 PDF ChatBot - Local LLM")
+    st.title("📄💬 PDF & Excel ChatBot - Local LLM")
     
     st.markdown("""
-    **Finansal dokümanlarınızı yükleyin ve Local LLM ile sorularınızı sorun!**
+    **Finansal dokümanlarınızı ve Excel dosyalarınızı yükleyin, Local LLM ile sorularınızı sorun!**
     
     - 🤖 Llama 3.1 8B veya Mistral 7B modelleri
-    - 📄 PDF dosyalarınızı yükleyin  
+    - 📄 PDF dosyalarınızı yükleyin
+    - 📊 Excel dosyalarınızı yükleyin (.xls, .xlsx, .xlsm)  
     - 🧠 Akıllı finansal analiz
     - 🔒 Tamamen local (internet gerekmez)
     """)
@@ -786,32 +862,66 @@ def main():
         
         # PDF Upload section - ORTAK ALAN (her iki model türü için de)
         st.divider()  # Visual separator
-        st.header("📁 PDF Yükle")
+        st.header("📁 Dosya Yükle")
         
-        uploaded_file = st.file_uploader(
-            "PDF dosyası seçin:",
-            type=['pdf'],
-            help="Analiz etmek istediğiniz PDF dosyasını yükleyin"
+        # File type selection
+        file_type = st.selectbox(
+            "📄 Dosya türü seçin:",
+            ["PDF", "Excel (XLS/XLSX)"],
+            help="Yüklemek istediğiniz dosya türünü seçin"
         )
         
-        if st.button("📤 Yükle ve İşle", type="primary"):
-            if not st.session_state.model_initialized:
-                st.error("❌ Önce ChatBot'u başlatın")
-            elif uploaded_file is not None:
-                with st.spinner("PDF işleniyor..."):
-                    try:
-                        result = st.session_state.chatbot.process_pdf_file(uploaded_file)
-                        if "✅" in result:
-                            # Update processed files in session state
-                            if uploaded_file.name not in st.session_state.processed_files:
-                                st.session_state.processed_files.append(uploaded_file.name)
-                            st.success(result)
-                        else:
-                            st.error(result)
-                    except Exception as e:
-                        st.error(f"PDF işleme hatası: {e}")
-            else:
-                st.warning("Lütfen bir PDF dosyası seçin")
+        if file_type == "PDF":
+            uploaded_file = st.file_uploader(
+                "PDF dosyası seçin:",
+                type=['pdf'],
+                help="Analiz etmek istediğiniz PDF dosyasını yükleyin"
+            )
+            
+            if st.button("📤 PDF'i Yükle ve İşle", type="primary"):
+                if not st.session_state.model_initialized:
+                    st.error("❌ Önce ChatBot'u başlatın")
+                elif uploaded_file is not None:
+                    with st.spinner("PDF işleniyor..."):
+                        try:
+                            result = st.session_state.chatbot.process_pdf_file(uploaded_file)
+                            if "✅" in result:
+                                # Update processed files in session state
+                                if uploaded_file.name not in st.session_state.processed_files:
+                                    st.session_state.processed_files.append(uploaded_file.name)
+                                st.success(result)
+                            else:
+                                st.error(result)
+                        except Exception as e:
+                            st.error(f"PDF işleme hatası: {e}")
+                else:
+                    st.warning("Lütfen bir PDF dosyası seçin")
+        
+        else:  # Excel
+            uploaded_file = st.file_uploader(
+                "Excel dosyası seçin:",
+                type=['xls', 'xlsx', 'xlsm'],
+                help="Analiz etmek istediğiniz Excel dosyasını yükleyin"
+            )
+            
+            if st.button("📊 Excel'i Yükle ve İşle", type="primary"):
+                if not st.session_state.model_initialized:
+                    st.error("❌ Önce ChatBot'u başlatın")
+                elif uploaded_file is not None:
+                    with st.spinner("Excel dosyası işleniyor..."):
+                        try:
+                            result = st.session_state.chatbot.process_excel_file(uploaded_file)
+                            if "✅" in result:
+                                # Update processed files in session state
+                                if uploaded_file.name not in st.session_state.processed_files:
+                                    st.session_state.processed_files.append(uploaded_file.name)
+                                st.success(result)
+                            else:
+                                st.error(result)
+                        except Exception as e:
+                            st.error(f"Excel işleme hatası: {e}")
+                else:
+                    st.warning("Lütfen bir Excel dosyası seçin")
         
         # Show processed files - ORTAK ALAN
         if st.session_state.processed_files:
@@ -934,6 +1044,19 @@ def main():
         - ⏳ İşlem tamamlanana kadar bekleyin
         - **📊 Tablolar otomatik olarak işlenir!**
         
+        ### 2. Dosya Yükleme
+        **PDF Dosyaları:**
+        - 📄 Dosya türü olarak "PDF" seçin
+        - 📁 PDF dosyanızı yükleyin
+        - 📤 "PDF'i Yükle ve İşle" butonuna tıklayın
+        - **📊 Tablolar otomatik olarak işlenir!**
+        
+        **Excel Dosyaları (YENİ!):**
+        - 📊 Dosya türü olarak "Excel (XLS/XLSX)" seçin
+        - 📁 .xls, .xlsx veya .xlsm dosyanızı yükleyin
+        - 📤 "Excel'i Yükle ve İşle" butonuna tıklayın
+        - **🔢 Tüm sayfalar ve veriler otomatik işlenir!**
+        
         ### 3. Soru Sorma
         - 💬 "Sohbet" sekmesinde sorunuzu chat input'a yazın
         - ⏎ Enter'a basın veya gönder butonuna tıklayın
@@ -976,6 +1099,36 @@ def main():
             - Boş tablolar filtrelenir
             - Her tablo ayrı chunk olarak işlenir
             - Tablo metadatası korunur
+            """)
+        
+        with st.expander("📊 Excel İşleme Özellikleri (YENİ!)"):
+            st.markdown("""
+            **✅ Desteklenen Excel Formatları:**
+            - 📄 .xls (Excel 97-2003)
+            - 📄 .xlsx (Excel 2007+)
+            - 📄 .xlsm (Macro-enabled Excel)
+            
+            **🔍 Otomatik İşlenen Veriler:**
+            - 📊 Tüm sayfalar (sheets) okunur
+            - 🔢 Sayısal ve metin verileri ayrı işlenir
+            - 📈 Otomatik istatistikler (toplam, ortalama, min, max)
+            - 📋 Sütun adları ve metadata korunur
+            - 🧹 Boş satır/sütunlar temizlenir
+            
+            **📋 Excel Sorgu Örnekleri:**
+            - "Hangi sayfalarda hangi veriler var?"
+            - "Sheet1'deki toplam satır sayısı?"
+            - "En yüksek maaş ne kadar?"
+            - "Gelir tablosunu özetle"
+            - "Satış verilerini analiz et"
+            - "Tüm sayfalardaki sayısal özeti ver"
+            - "Hangi sütunlarda hangi türde veriler var?"
+            
+            **⚡ Gelişmiş Özellikler:**
+            - Her sayfa ayrı chunk olarak işlenir
+            - Sayısal sütunlar için otomatik istatistik
+            - Metin formatına dönüştürülmüş aranabilir veri
+            - Vector store'da metadata ile arama
             """)
 
         with st.expander("⚠️ Troubleshooting"):
