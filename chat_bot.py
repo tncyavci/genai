@@ -449,9 +449,21 @@ class PDFChatBot:
         self.excel_processor = ExcelProcessor()
         self.text_processor = TextProcessor(chunk_size=800, overlap_size=150)
         self.vector_store = VectorStore()
+        
+        # Create a simple embedding service wrapper
+        class EmbeddingServiceWrapper:
+            def __init__(self, model):
+                self.model_name = model.model_name if hasattr(model, 'model_name') else str(model)
+                self.model = model
+            
+            def generate_embedding(self, text: str):
+                return self.model.encode(text)
+        
+        # Initialize retrieval service with wrapper
+        embedding_wrapper = EmbeddingServiceWrapper(self.text_processor.model)
         self.retrieval_service = RetrievalService(
             vector_store=self.vector_store,
-            embedding_service=self.text_processor.embedding_service
+            embedding_service=embedding_wrapper
         )
         
         # Initialize LLM service with GGUF support

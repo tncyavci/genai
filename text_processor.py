@@ -42,7 +42,7 @@ class TextProcessor:
                  chunk_size: int = 300,  # Reduced from 500
                  overlap_size: int = 50,  # Reduced from 100
                  min_chunk_size: int = 50,  # New parameter
-                 embedding_model: str = 'sentence-transformers/all-MiniLM-L6-v2'):
+                 embedding_model: str = 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2'):
         """
         Initialize text processor
         
@@ -345,6 +345,112 @@ class TextProcessor:
             return 'header'
         else:
             return 'text'
+    
+    def process_excel_sheets(self, sheets: List[Dict], source_file: str) -> List[EmbeddedChunk]:
+        """
+        Process Excel sheets and create embedded chunks
+        
+        Args:
+            sheets: List of Excel sheets
+            source_file: Source file name
+            
+        Returns:
+            List of embedded chunks
+        """
+        try:
+            embedded_chunks = []
+            
+            for sheet in sheets:
+                # Process text content
+                text_chunks = self._create_text_chunks(
+                    text=sheet['text_content'],
+                    page_number=sheet['sheet_index'],
+                    source_file=source_file
+                )
+                
+                # Create embeddings for chunks
+                for chunk in text_chunks:
+                    # Update chunk type for Excel
+                    chunk.metadata['content_type'] = 'excel'
+                    chunk.metadata['sheet_name'] = sheet['sheet_name']
+                    
+                    embedding = self._create_embedding(chunk.content)
+                    embedded_chunk = EmbeddedChunk(
+                        chunk=chunk,
+                        embedding=embedding,
+                        embedding_model=self.embedding_model
+                    )
+                    embedded_chunks.append(embedded_chunk)
+            
+            logger.info(f"✅ Processed {len(sheets)} Excel sheets into {len(embedded_chunks)} chunks")
+            return embedded_chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to process Excel sheets: {e}")
+            return []
+    
+    def get_processing_stats(self, embedded_chunks: List[EmbeddedChunk] = None) -> Dict:
+        """
+        Get processing statistics
+        
+        Args:
+            embedded_chunks: List of embedded chunks to analyze
+            
+        Returns:
+            Statistics dictionary
+        """
+        if not embedded_chunks:
+            return {
+                'total_chunks': 0,
+                'text_chunks': 0,
+                'table_chunks': 0,
+                'total_characters': 0,
+                'language_distribution': {},
+                'content_type_distribution': {},
+                'chunk_type_distribution': {}
+            }
+        
+        stats = {
+            'total_chunks': len(embedded_chunks),
+            'text_chunks': 0,
+            'table_chunks': 0,
+            'total_characters': 0,
+            'language_distribution': {},
+            'content_type_distribution': {},
+            'chunk_type_distribution': {},
+            'pages_with_tables': 0
+        }
+        
+        pages_with_tables = set()
+        
+        for embedded_chunk in embedded_chunks:
+            chunk = embedded_chunk.chunk
+            
+            # Count characters
+            stats['total_characters'] += len(chunk.content)
+            
+            # Count chunk types
+            chunk_type = chunk.metadata.get('chunk_type', 'unknown')
+            if chunk_type.startswith('table'):
+                stats['table_chunks'] += 1
+                pages_with_tables.add(chunk.page_number)
+            else:
+                stats['text_chunks'] += 1
+            
+            # Language distribution
+            language = chunk.metadata.get('language', 'unknown')
+            stats['language_distribution'][language] = stats['language_distribution'].get(language, 0) + 1
+            
+            # Content type distribution  
+            content_type = chunk.metadata.get('content_type', 'unknown')
+            stats['content_type_distribution'][content_type] = stats['content_type_distribution'].get(content_type, 0) + 1
+            
+            # Chunk type distribution
+            stats['chunk_type_distribution'][chunk_type] = stats['chunk_type_distribution'].get(chunk_type, 0) + 1
+        
+        stats['pages_with_tables'] = len(pages_with_tables)
+        
+        return stats
 
 def test_text_processor():
     """
@@ -381,7 +487,7 @@ def test_text_processor():
         print(f"   📝 Total characters: {stats['total_characters']:,}")
         print(f"   📏 Average chunk size: {stats['total_characters'] / stats['total_chunks']:.1f}")
         print(f"   🌍 Languages: {stats['language_distribution']}")
-        print(f"   🔢 Embedding dimension: {processor.embedding_service.model.get_sentence_embedding_dimension()}")
+        print(f"   🔢 Embedding dimension: {processor.model.get_sentence_embedding_dimension()}")
         
         # Show sample chunk
         if embedded_chunks:

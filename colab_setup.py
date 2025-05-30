@@ -67,23 +67,48 @@ def install_packages():
         except Exception as e2:
             print(f"❌ Streamlit install failed: {e2}")
     
-    # Essential packages
+    # Essential packages with compatible versions - ALL DEPENDENCIES
     essential_packages = [
+        # Core ML & LLM
+        "torch>=2.0.0",      # PyTorch for GPU operations
         "transformers>=4.30.0",
         "accelerate>=0.20.0", 
         "sentence-transformers>=2.2.0",
+        "llama-cpp-python",  # GGUF model support
+        
+        # PDF & Document Processing
         "pdfplumber>=0.7.0",
         "PyPDF2>=2.0.0",
-        "chromadb>=0.4.0",
-        "python-dotenv",
+        
+        # Excel Processing
         "openpyxl>=3.1.0",  # Excel XLSX support
         "xlrd>=2.0.1",      # Excel XLS support
-        "nltk>=3.8.1",      # Text processing and chunking
+        "pandas>=2.0.0",    # Data processing
+        
+        # Vector Database & Search
+        "chromadb>=0.4.0",
+        "faiss-cpu",         # Alternative vector database
+        
+        # Web Interface
+        "streamlit>=1.28.0", # Web UI
+        "pyngrok",           # Tunnel for Colab
+        
+        # Text Processing & NLP
+        "numpy==1.26.4",    # Compatible version to avoid conflicts
+        "nltk==3.8.1",      # Compatible NLTK version
         "rouge-score>=0.1.2",  # Evaluation metrics
         "scikit-learn>=1.0.0", # Machine learning and evaluation
-        "numpy>=1.24.0",     # Numerical operations
-        "pandas>=2.0.0",     # Data processing
-        "tqdm>=4.65.0"       # Progress bars
+        "tqdm>=4.65.0",     # Progress bars
+        
+        # API & External Services
+        "openai>=1.0.0",    # OpenAI API (optional)
+        "python-dotenv",    # Environment variables
+        
+        # Utilities
+        "requests>=2.25.0", # HTTP requests
+        "beautifulsoup4",   # HTML parsing (if needed)
+        "lxml",             # XML parsing
+        "pillow>=8.0.0",    # Image processing
     ]
     
     print("📦 Installing essential packages...")
@@ -94,11 +119,12 @@ def install_packages():
             # Try with --no-deps if regular install fails
             run_command(f"pip install --no-deps {package}", ignore_errors=True)
     
-    # Optional packages
+    # Optional packages (may fail on some systems)
     optional_packages = [
-        "openai>=1.0.0",
-        "bitsandbytes",  # May fail on some systems
-        "torch>=2.0.0"  # Ensure latest torch
+        "bitsandbytes",      # Quantization support (may fail)
+        "huggingface_hub",   # HF model downloads
+        "datasets",          # Dataset processing (optional)
+        "wandb",             # Experiment tracking (optional)
     ]
     
     print("🔧 Installing optional packages...")
