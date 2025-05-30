@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
 Text Processing Module
-Handles text chunking and embedding generation for RAG pipeline
-Optimized for Turkish and English content processing
+Handles text chunking, embedding, and metadata enrichment
 """
 
 import re
 import logging
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
+import nltk
+from nltk.tokenize import sent_tokenize
+from sentence_transformers import SentenceTransformer
 import numpy as np
 
 # Configure logging
@@ -17,324 +19,332 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class TextChunk:
-    """Container for text chunks with metadata"""
-    content: str
+    """Container for text chunk data"""
     chunk_id: str
+    content: str
     source_file: str
     page_number: int
     start_char: int
     end_char: int
-    metadata: Dict
+    metadata: Dict[str, Any]
 
 @dataclass
 class EmbeddedChunk:
-    """Text chunk with embedding vector"""
+    """Container for embedded chunk data"""
     chunk: TextChunk
     embedding: np.ndarray
     embedding_model: str
 
-class TextChunker:
-    """
-    Intelligent text chunking with overlap strategy
-    Optimized for financial documents and Turkish language
-    """
+class TextProcessor:
+    """Class for processing text and creating embeddings"""
     
-    def __init__(self, 
-                 chunk_size: int = 1000,
-                 overlap_size: int = 200,
-                 min_chunk_size: int = 100):
+    def __init__(self,
+                 chunk_size: int = 300,  # Reduced from 500
+                 overlap_size: int = 50,  # Reduced from 100
+                 min_chunk_size: int = 50,  # New parameter
+                 embedding_model: str = 'sentence-transformers/all-MiniLM-L6-v2'):
+        """
+        Initialize text processor
+        
+        Args:
+            chunk_size: Maximum size of text chunks
+            overlap_size: Size of overlap between chunks
+            min_chunk_size: Minimum size for a chunk
+            embedding_model: Name of the embedding model to use
+        """
         self.chunk_size = chunk_size
         self.overlap_size = overlap_size
         self.min_chunk_size = min_chunk_size
+        self.embedding_model = embedding_model
         
-        # Turkish sentence endings
-        self.sentence_endings = r'[.!?]+\s+'
-        self.paragraph_break = r'\n\s*\n'
-        
-    def clean_text(self, text: str) -> str:
-        """
-        Clean and normalize text content
-        """
-        if not text:
-            return ""
+        try:
+            # Download required NLTK data
+            nltk.download('punkt', quiet=True)
+            nltk.download('averaged_perceptron_tagger', quiet=True)
             
-        # Remove extra whitespace
-        text = re.sub(r'\s+', ' ', text)
-        
-        # Remove encoding artifacts (common in PDF extraction)
-        text = re.sub(r'\(cid:\d+\)', '', text)
-        
-        # Fix common PDF extraction issues
-        text = text.replace('ﬁ', 'fi').replace('ﬂ', 'fl')
-        text = text.replace('ı', 'ı').replace('İ', 'İ')  # Turkish specific
-        
-        # Remove excessive punctuation
-        text = re.sub(r'[.]{3,}', '...', text)
-        
-        return text.strip()
-    
-    def find_sentence_boundaries(self, text: str) -> List[int]:
-        """
-        Find sentence boundaries for intelligent chunking
-        """
-        boundaries = []
-        
-        # Find sentence endings
-        for match in re.finditer(self.sentence_endings, text):
-            boundaries.append(match.end())
-        
-        # Find paragraph breaks
-        for match in re.finditer(self.paragraph_break, text):
-            boundaries.append(match.start())
+            # Initialize embedding model
+            self.model = SentenceTransformer(embedding_model)
             
-        return sorted(set(boundaries))
+            logger.info(f"✅ Text processor initialized with model: {embedding_model}")
+        except Exception as e:
+            logger.error(f"Failed to initialize text processor: {e}")
+            raise
     
-    def chunk_text(self, text: str, source_file: str, page_number: int) -> List[TextChunk]:
+    def process_document_pages(self, pages: List[Dict], source_file: str) -> List[EmbeddedChunk]:
         """
-        Split text into overlapping chunks with intelligent boundaries
+        Process document pages and create embedded chunks
+        
+        Args:
+            pages: List of document pages
+            source_file: Source file name
+            
+        Returns:
+            List of embedded chunks
         """
-        cleaned_text = self.clean_text(text)
-        if len(cleaned_text) < self.min_chunk_size:
+        try:
+            embedded_chunks = []
+            
+            for page in pages:
+                # Process text content
+                text_chunks = self._create_text_chunks(
+                    text=page['text'],
+                    page_number=page['page_number'],
+                    source_file=source_file
+                )
+                
+                # Process tables if present
+                if 'tables' in page:
+                    table_chunks = self._process_tables(
+                        tables=page['tables'],
+                        page_number=page['page_number'],
+                        source_file=source_file
+                    )
+                    text_chunks.extend(table_chunks)
+                
+                # Create embeddings for chunks
+                for chunk in text_chunks:
+                    embedding = self._create_embedding(chunk.content)
+                    embedded_chunk = EmbeddedChunk(
+                        chunk=chunk,
+                        embedding=embedding,
+                        embedding_model=self.embedding_model
+                    )
+                    embedded_chunks.append(embedded_chunk)
+            
+            logger.info(f"✅ Processed {len(pages)} pages into {len(embedded_chunks)} chunks")
+            return embedded_chunks
+            
+        except Exception as e:
+            logger.error(f"Failed to process document pages: {e}")
             return []
-            
-        chunks = []
-        sentence_boundaries = self.find_sentence_boundaries(cleaned_text)
-        
-        start_pos = 0
-        chunk_counter = 0
-        
-        while start_pos < len(cleaned_text):
-            # Calculate end position
-            end_pos = min(start_pos + self.chunk_size, len(cleaned_text))
-            
-            # Try to end at sentence boundary if possible
-            if end_pos < len(cleaned_text):
-                suitable_boundaries = [b for b in sentence_boundaries 
-                                     if start_pos + self.chunk_size // 2 <= b <= end_pos]
-                if suitable_boundaries:
-                    end_pos = suitable_boundaries[-1]
-            
-            # Extract chunk content
-            chunk_content = cleaned_text[start_pos:end_pos].strip()
-            
-            if len(chunk_content) >= self.min_chunk_size:
-                chunk_id = f"{source_file}_p{page_number}_c{chunk_counter}"
-                
-                chunk = TextChunk(
-                    content=chunk_content,
-                    chunk_id=chunk_id,
-                    source_file=source_file,
-                    page_number=page_number,
-                    start_char=start_pos,
-                    end_char=end_pos,
-                    metadata={
-                        'chunk_length': len(chunk_content),
-                        'word_count': len(chunk_content.split()),
-                        'language': self.detect_language(chunk_content)
-                    }
-                )
-                chunks.append(chunk)
-                chunk_counter += 1
-            
-            # Move to next position with overlap
-            if end_pos >= len(cleaned_text):
-                break
-                
-            # Calculate next start position with overlap
-            next_start = end_pos - self.overlap_size
-            
-            # Find suitable overlap boundary
-            overlap_boundaries = [b for b in sentence_boundaries 
-                                if end_pos - self.overlap_size * 2 <= b <= next_start]
-            if overlap_boundaries:
-                next_start = overlap_boundaries[-1]
-                
-            start_pos = max(next_start, start_pos + self.min_chunk_size)
-        
-        logger.info(f"Created {len(chunks)} chunks for page {page_number}")
-        return chunks
     
-    def detect_language(self, text: str) -> str:
+    def _create_text_chunks(self, text: str, page_number: int, source_file: str) -> List[TextChunk]:
         """
-        Simple language detection for Turkish vs English
-        """
-        turkish_chars = 'çğıöşüÇĞIÖŞÜ'
-        turkish_count = sum(1 for char in text if char in turkish_chars)
+        Create text chunks using improved chunking strategy
         
-        # If more than 1% Turkish characters, assume Turkish
-        if len(text) > 0 and (turkish_count / len(text)) > 0.01:
-            return 'tr'
-        return 'en'
-
-class EmbeddingService:
-    """
-    Embedding generation service supporting multiple models
-    """
-    
-    def __init__(self, model_name: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
-        self.model_name = model_name
-        self.model = None
-        self._load_model()
-    
-    def _load_model(self):
-        """
-        Load the embedding model
+        Args:
+            text: Text to chunk
+            page_number: Page number
+            source_file: Source file name
+            
+        Returns:
+            List of text chunks
         """
         try:
-            # Try to import sentence transformers
-            from sentence_transformers import SentenceTransformer
+            chunks = []
+            current_pos = 0
             
-            logger.info(f"Loading embedding model: {self.model_name}")
-            self.model = SentenceTransformer(self.model_name)
-            logger.info("✅ Embedding model loaded successfully")
+            # Split text into sentences
+            sentences = sent_tokenize(text)
             
-        except ImportError:
-            logger.warning("SentenceTransformers not available, using dummy embeddings")
-            self.model = None
+            current_chunk = []
+            current_length = 0
+            
+            for sentence in sentences:
+                sentence_length = len(sentence)
+                
+                # Check if adding this sentence would exceed chunk size
+                if current_length + sentence_length > self.chunk_size and current_chunk:
+                    # Create chunk if it meets minimum size
+                    if current_length >= self.min_chunk_size:
+                        chunk_content = ' '.join(current_chunk)
+                        chunk = self._create_chunk(
+                            content=chunk_content,
+                            start_pos=current_pos,
+                            end_pos=current_pos + len(chunk_content),
+                            page_number=page_number,
+                            source_file=source_file,
+                            chunk_type='text'
+                        )
+                        chunks.append(chunk)
+                    
+                    # Keep overlap for context
+                    overlap_start = max(0, len(current_chunk) - self.overlap_size)
+                    current_chunk = current_chunk[overlap_start:]
+                    current_length = sum(len(s) for s in current_chunk)
+                    current_pos += len(' '.join(current_chunk[:overlap_start]))
+                
+                current_chunk.append(sentence)
+                current_length += sentence_length
+            
+            # Add remaining text as final chunk
+            if current_chunk:
+                chunk_content = ' '.join(current_chunk)
+                if len(chunk_content) >= self.min_chunk_size:
+                    chunk = self._create_chunk(
+                        content=chunk_content,
+                        start_pos=current_pos,
+                        end_pos=current_pos + len(chunk_content),
+                        page_number=page_number,
+                        source_file=source_file,
+                        chunk_type='text'
+                    )
+                    chunks.append(chunk)
+            
+            return chunks
+            
         except Exception as e:
-            logger.error(f"Failed to load embedding model: {e}")
-            self.model = None
+            logger.error(f"Failed to create text chunks: {e}")
+            return []
     
-    def generate_embedding(self, text: str) -> np.ndarray:
+    def _process_tables(self, tables: List[Dict], page_number: int, source_file: str) -> List[TextChunk]:
         """
-        Generate embedding vector for text
-        """
-        if self.model is None:
-            # Return dummy embedding for testing
-            logger.warning("Using dummy embedding")
-            return np.random.rand(384).astype(np.float32)
+        Process tables and create chunks
         
+        Args:
+            tables: List of tables
+            page_number: Page number
+            source_file: Source file name
+            
+        Returns:
+            List of text chunks
+        """
         try:
-            embedding = self.model.encode(text, convert_to_numpy=True)
-            return embedding.astype(np.float32)
+            chunks = []
+            
+            for i, table in enumerate(tables):
+                # Process table header
+                if 'header' in table:
+                    header_chunk = self._create_chunk(
+                        content=table['header'],
+                        start_pos=0,
+                        end_pos=len(table['header']),
+                        page_number=page_number,
+                        source_file=source_file,
+                        chunk_type='table_header',
+                        table_id=f"table_{i}",
+                        is_table_fragment=True
+                    )
+                    chunks.append(header_chunk)
+                
+                # Process table rows
+                if 'rows' in table:
+                    for j, row in enumerate(table['rows']):
+                        row_chunk = self._create_chunk(
+                            content=str(row),
+                            start_pos=0,
+                            end_pos=len(str(row)),
+                            page_number=page_number,
+                            source_file=source_file,
+                            chunk_type='table_row',
+                            table_id=f"table_{i}",
+                            row_index=j,
+                            is_table_fragment=True
+                        )
+                        chunks.append(row_chunk)
+            
+            return chunks
+            
         except Exception as e:
-            logger.error(f"Embedding generation failed: {e}")
-            return np.random.rand(384).astype(np.float32)
+            logger.error(f"Failed to process tables: {e}")
+            return []
     
-    def embed_chunks(self, chunks: List[TextChunk]) -> List[EmbeddedChunk]:
+    def _create_chunk(self,
+                     content: str,
+                     start_pos: int,
+                     end_pos: int,
+                     page_number: int,
+                     source_file: str,
+                     chunk_type: str,
+                     **kwargs) -> TextChunk:
         """
-        Generate embeddings for a list of text chunks
-        """
-        embedded_chunks = []
+        Create a text chunk with enhanced metadata
         
-        logger.info(f"Generating embeddings for {len(chunks)} chunks...")
-        
-        for chunk in chunks:
-            try:
-                embedding = self.generate_embedding(chunk.content)
-                
-                embedded_chunk = EmbeddedChunk(
-                    chunk=chunk,
-                    embedding=embedding,
-                    embedding_model=self.model_name
-                )
-                embedded_chunks.append(embedded_chunk)
-                
-            except Exception as e:
-                logger.error(f"Failed to embed chunk {chunk.chunk_id}: {e}")
-                continue
-        
-        logger.info(f"✅ Generated {len(embedded_chunks)} embeddings")
-        return embedded_chunks
-
-class TextProcessor:
-    """
-    Main text processing pipeline combining chunking and embedding
-    """
-    
-    def __init__(self, 
-                 chunk_size: int = 1000,
-                 overlap_size: int = 200,
-                 embedding_model: str = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"):
-        
-        self.chunker = TextChunker(chunk_size=chunk_size, overlap_size=overlap_size)
-        self.embedding_service = EmbeddingService(model_name=embedding_model)
-    
-    def process_document_pages(self, pages: List, source_file: str) -> List[EmbeddedChunk]:
-        """
-        Process all pages from a document and return embedded chunks
-        """
-        all_chunks = []
-        
-        for page_content in pages:
-            # Extract text content (handling different input formats)
-            if hasattr(page_content, 'text'):
-                text = page_content.text
-                page_num = page_content.page_number
-            else:
-                text = str(page_content)
-                page_num = 1
+        Args:
+            content: Chunk content
+            start_pos: Start position in original text
+            end_pos: End position in original text
+            page_number: Page number
+            source_file: Source file name
+            chunk_type: Type of chunk (text/table_header/table_row)
+            **kwargs: Additional metadata
             
-            # Create chunks
-            page_chunks = self.chunker.chunk_text(text, source_file, page_num)
-            all_chunks.extend(page_chunks)
-        
-        # Generate embeddings
-        embedded_chunks = self.embedding_service.embed_chunks(all_chunks)
-        
-        return embedded_chunks
-    
-    def process_excel_sheets(self, sheets: List, source_file: str) -> List[EmbeddedChunk]:
+        Returns:
+            TextChunk object
         """
-        Process Excel sheets and return embedded chunks
-        Each sheet becomes a separate 'page' for chunking
-        """
-        all_chunks = []
+        # Generate chunk ID
+        chunk_id = f"{source_file}_p{page_number}_{start_pos}_{end_pos}"
         
-        for sheet_idx, sheet_content in enumerate(sheets, 1):
-            # Handle ExcelSheetContent objects
-            if hasattr(sheet_content, 'text_content'):
-                text = sheet_content.text_content
-                sheet_name = sheet_content.sheet_name
-                page_num = sheet_idx
-            else:
-                # Fallback for other formats
-                text = str(sheet_content)
-                sheet_name = f"Sheet_{sheet_idx}"
-                page_num = sheet_idx
-            
-            # Create chunks with Excel-specific metadata
-            sheet_chunks = self.chunker.chunk_text(text, source_file, page_num)
-            
-            # Add Excel-specific metadata to chunks
-            for chunk in sheet_chunks:
-                chunk.metadata.update({
-                    'content_type': 'excel',
-                    'sheet_name': sheet_name,
-                    'sheet_index': sheet_idx
-                })
-            
-            all_chunks.extend(sheet_chunks)
-        
-        # Generate embeddings
-        embedded_chunks = self.embedding_service.embed_chunks(all_chunks)
-        
-        logger.info(f"Created {len(embedded_chunks)} embedded chunks from {len(sheets)} Excel sheets")
-        return embedded_chunks
-    
-    def get_processing_stats(self, embedded_chunks: List[EmbeddedChunk]) -> Dict:
-        """
-        Generate processing statistics
-        """
-        if not embedded_chunks:
-            return {}
-        
-        total_chunks = len(embedded_chunks)
-        total_characters = sum(len(chunk.chunk.content) for chunk in embedded_chunks)
-        avg_chunk_size = total_characters / total_chunks if total_chunks > 0 else 0
-        
-        # Language distribution
-        languages = [chunk.chunk.metadata.get('language', 'unknown') 
-                    for chunk in embedded_chunks]
-        lang_dist = {lang: languages.count(lang) for lang in set(languages)}
-        
-        return {
-            'total_chunks': total_chunks,
-            'total_characters': total_characters,
-            'avg_chunk_size': avg_chunk_size,
-            'language_distribution': lang_dist,
-            'embedding_dimension': embedded_chunks[0].embedding.shape[0] if embedded_chunks else 0
+        # Create base metadata
+        metadata = {
+            'chunk_type': chunk_type,
+            'chunk_length': len(content),
+            'word_count': len(content.split()),
+            'language': self._detect_language(content),
+            'content_type': self._detect_content_type(content),
+            'has_numbers': bool(re.search(r'\d', content)),
+            'has_currency': bool(re.search(r'[₺$€£]', content)),
+            'has_percentage': bool(re.search(r'%', content))
         }
+        
+        # Add additional metadata
+        metadata.update(kwargs)
+        
+        return TextChunk(
+            chunk_id=chunk_id,
+            content=content,
+            source_file=source_file,
+            page_number=page_number,
+            start_char=start_pos,
+            end_char=end_pos,
+            metadata=metadata
+        )
+    
+    def _create_embedding(self, text: str) -> np.ndarray:
+        """
+        Create embedding for text
+        
+        Args:
+            text: Text to embed
+            
+        Returns:
+            Embedding vector
+        """
+        try:
+            return self.model.encode(text)
+        except Exception as e:
+            logger.error(f"Failed to create embedding: {e}")
+            return np.zeros(384)  # Default embedding size for all-MiniLM-L6-v2
+    
+    def _detect_language(self, text: str) -> str:
+        """
+        Detect language of text
+        
+        Args:
+            text: Text to analyze
+            
+        Returns:
+            Language code
+        """
+        # Simple language detection based on common words
+        tr_words = ['ve', 'ile', 'bu', 'bir', 'de', 'da']
+        en_words = ['and', 'the', 'this', 'that', 'in', 'on']
+        
+        tr_count = sum(1 for word in tr_words if word in text.lower())
+        en_count = sum(1 for word in en_words if word in text.lower())
+        
+        return 'tr' if tr_count > en_count else 'en'
+    
+    def _detect_content_type(self, text: str) -> str:
+        """
+        Detect content type of text
+        
+        Args:
+            text: Text to analyze
+            
+        Returns:
+            Content type
+        """
+        if re.search(r'\d+[.,]\d+\s*[₺$€£]', text):
+            return 'financial_value'
+        elif re.search(r'\d+%', text):
+            return 'percentage'
+        elif re.search(r'\d{4}-\d{2}-\d{2}', text):
+            return 'date'
+        elif re.search(r'[A-Z][a-z]+(?:\s+[A-Z][a-z]+)*:', text):
+            return 'header'
+        else:
+            return 'text'
 
 def test_text_processor():
     """
@@ -369,9 +379,9 @@ def test_text_processor():
         print(f"   📄 Pages processed: {len(test_pages)}")
         print(f"   🧩 Total chunks: {stats['total_chunks']}")
         print(f"   📝 Total characters: {stats['total_characters']:,}")
-        print(f"   📏 Average chunk size: {stats['avg_chunk_size']:.1f}")
+        print(f"   📏 Average chunk size: {stats['total_characters'] / stats['total_chunks']:.1f}")
         print(f"   🌍 Languages: {stats['language_distribution']}")
-        print(f"   🔢 Embedding dimension: {stats['embedding_dimension']}")
+        print(f"   🔢 Embedding dimension: {processor.embedding_service.model.get_sentence_embedding_dimension()}")
         
         # Show sample chunk
         if embedded_chunks:

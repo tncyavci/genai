@@ -120,8 +120,22 @@ class VectorStore:
                     'chunk_length': chunk.metadata.get('chunk_length', 0),
                     'word_count': chunk.metadata.get('word_count', 0),
                     'language': chunk.metadata.get('language', 'unknown'),
+                    'content_type': chunk.metadata.get('content_type', 'unknown'),
+                    'chunk_type': chunk.metadata.get('chunk_type', 'unknown'),
+                    'has_numbers': chunk.metadata.get('has_numbers', False),
+                    'has_currency': chunk.metadata.get('has_currency', False),
+                    'has_percentage': chunk.metadata.get('has_percentage', False),
                     'embedding_model': embedded_chunk.embedding_model
                 }
+                
+                # Add table-specific metadata
+                if 'table_id' in chunk.metadata:
+                    metadata['table_id'] = chunk.metadata['table_id']
+                if 'is_table_fragment' in chunk.metadata:
+                    metadata['is_table_fragment'] = chunk.metadata['is_table_fragment']
+                if 'row_index' in chunk.metadata:
+                    metadata['row_index'] = chunk.metadata['row_index']
+                
                 metadatas.append(metadata)
             
             # Add to collection in batches
@@ -148,7 +162,8 @@ class VectorStore:
     
     def search(self, 
                query_embedding: np.ndarray,
-               n_results: int = 5,
+               n_results: int = 10,  # Increased from 5
+               min_score: float = 0.7,  # New parameter
                filter_metadata: Optional[Dict] = None) -> List[SearchResult]:
         """
         Perform similarity search in the vector store
@@ -158,10 +173,10 @@ class VectorStore:
             if isinstance(query_embedding, np.ndarray):
                 query_embedding = query_embedding.tolist()
             
-            # Perform search
+            # Perform search with increased results
             search_kwargs = {
                 "query_embeddings": [query_embedding],
-                "n_results": n_results
+                "n_results": n_results * 2  # Get more results for filtering
             }
             
             # Add metadata filter if provided
@@ -170,21 +185,29 @@ class VectorStore:
             
             results = self.collection.query(**search_kwargs)
             
-            # Convert to SearchResult objects
+            # Convert to SearchResult objects and filter by score
             search_results = []
             
             for i in range(len(results['ids'][0])):
-                result = SearchResult(
-                    content=results['documents'][0][i],
-                    chunk_id=results['metadatas'][0][i]['chunk_id'],
-                    source_file=results['metadatas'][0][i]['source_file'],
-                    page_number=results['metadatas'][0][i]['page_number'],
-                    score=1.0 - results['distances'][0][i],  # Convert distance to similarity
-                    metadata=results['metadatas'][0][i]
-                )
-                search_results.append(result)
+                score = 1.0 - results['distances'][0][i]  # Convert distance to similarity
+                
+                # Apply minimum score threshold
+                if score >= min_score:
+                    result = SearchResult(
+                        content=results['documents'][0][i],
+                        chunk_id=results['metadatas'][0][i]['chunk_id'],
+                        source_file=results['metadatas'][0][i]['source_file'],
+                        page_number=results['metadatas'][0][i]['page_number'],
+                        score=score,
+                        metadata=results['metadatas'][0][i]
+                    )
+                    search_results.append(result)
             
-            logger.info(f"Found {len(search_results)} results for query")
+            # Sort by score and limit to requested number of results
+            search_results.sort(key=lambda x: x.score, reverse=True)
+            search_results = search_results[:n_results]
+            
+            logger.info(f"Found {len(search_results)} results for query (min_score={min_score})")
             return search_results
             
         except Exception as e:
@@ -197,32 +220,72 @@ class VectorStore:
         """
         try:
             count = self.collection.count()
+            if count == 0:
+                return {
+                    'total_documents': 0,
+                    'unique_source_files': 0,
+                    'language_distribution': {},
+                    'content_type_distribution': {},
+                    'chunk_type_distribution': {},
+                    'sample_size': 0,
+                    'avg_chunk_length': 0
+                }
+
+            # Get sample of documents to analyze metadata
+            limit_for_stats = min(count, 500)
+            sample = self.collection.get(limit=limit_for_stats, include=["metadatas"])
             
-            # Get sample of documents to analyze
-            sample = self.collection.get(limit=min(100, count))
-            
-            # Analyze languages
+            # Analyze metadata distributions
             languages = {}
+            content_types = {}
+            chunk_types = {}
             source_files = set()
             total_chars = 0
-            
-            for metadata in sample['metadatas']:
-                lang = metadata.get('language', 'unknown')
-                languages[lang] = languages.get(lang, 0) + 1
-                source_files.add(metadata.get('source_file', 'unknown'))
-                total_chars += metadata.get('chunk_length', 0)
+            actual_sample_size = 0
+
+            if sample and sample['metadatas']:
+                actual_sample_size = len(sample['metadatas'])
+                for metadata_item in sample['metadatas']:
+                    # Language distribution
+                    lang = metadata_item.get('language', 'unknown')
+                    languages[lang] = languages.get(lang, 0) + 1
+                    
+                    # Content type distribution
+                    ctype = metadata_item.get('content_type', 'unknown')
+                    content_types[ctype] = content_types.get(ctype, 0) + 1
+                    
+                    # Chunk type distribution
+                    chunk_type = metadata_item.get('chunk_type', 'unknown')
+                    chunk_types[chunk_type] = chunk_types.get(chunk_type, 0) + 1
+                    
+                    # Source files
+                    source_files.add(metadata_item.get('source_file', 'unknown'))
+                    
+                    # Character count
+                    total_chars += metadata_item.get('chunk_length', 0)
             
             return {
                 'total_documents': count,
                 'unique_source_files': len(source_files),
                 'language_distribution': languages,
-                'sample_size': len(sample['metadatas']),
-                'avg_chunk_length': total_chars / len(sample['metadatas']) if sample['metadatas'] else 0
+                'content_type_distribution': content_types,
+                'chunk_type_distribution': chunk_types,
+                'sample_size_for_distributions': actual_sample_size,
+                'avg_chunk_length_in_sample': total_chars / actual_sample_size if actual_sample_size > 0 else 0
             }
             
         except Exception as e:
-            logger.error(f"Failed to get collection stats: {e}")
-            return {}
+            logger.error(f"Failed to get collection stats: {e}", exc_info=True)
+            return {
+                'total_documents': 0,
+                'unique_source_files': 0,
+                'language_distribution': {},
+                'content_type_distribution': {},
+                'chunk_type_distribution': {},
+                'sample_size_for_distributions': 0,
+                'avg_chunk_length_in_sample': 0,
+                'error': str(e)
+            }
     
     def clear_collection(self):
         """
@@ -255,8 +318,10 @@ class RetrievalService:
     def retrieve_context(self, 
                         query: str,
                         n_results: int = 5,
+                        min_score: float = 0.7,
                         filter_by_language: Optional[str] = None,
-                        filter_by_source: Optional[str] = None) -> RetrievalContext:
+                        filter_by_source: Optional[str] = None,
+                        filter_by_content_type: Optional[str] = None) -> RetrievalContext:
         """
         Retrieve relevant context for a query
         """
@@ -270,11 +335,14 @@ class RetrievalService:
                 metadata_filter['language'] = filter_by_language
             if filter_by_source:
                 metadata_filter['source_file'] = filter_by_source
+            if filter_by_content_type:
+                metadata_filter['content_type'] = filter_by_content_type
             
             # Search for relevant chunks
             search_results = self.vector_store.search(
                 query_embedding=query_embedding,
                 n_results=n_results,
+                min_score=min_score,
                 filter_metadata=metadata_filter if metadata_filter else None
             )
             
@@ -325,7 +393,17 @@ class RetrievalService:
             
             # Add content
             for result in results:
-                context_parts.append(f"- {result.content}\n")
+                # Add metadata hints for better context
+                metadata_hints = []
+                if result.metadata.get('has_numbers'):
+                    metadata_hints.append("📊")
+                if result.metadata.get('has_currency'):
+                    metadata_hints.append("💰")
+                if result.metadata.get('has_percentage'):
+                    metadata_hints.append("📈")
+                
+                hint_str = " ".join(metadata_hints)
+                context_parts.append(f"{hint_str} {result.content}\n")
         
         return "\n".join(context_parts)
     
@@ -350,7 +428,7 @@ def test_vector_store():
     
     # Initialize components
     vector_store = VectorStore()
-    text_processor = TextProcessor(chunk_size=500, overlap_size=100)
+    text_processor = TextProcessor(chunk_size=300, overlap_size=50)
     pdf_processor = PDFProcessor()
     
     # Test with sample PDF
@@ -384,7 +462,11 @@ def test_vector_store():
         for query in test_queries:
             print(f"\n📝 Query: '{query}'")
             
-            context = retrieval_service.retrieve_context(query, n_results=3)
+            context = retrieval_service.retrieve_context(
+                query=query,
+                n_results=3,
+                min_score=0.7
+            )
             
             print(f"   📊 Results found: {context.total_results}")
             
@@ -398,6 +480,8 @@ def test_vector_store():
         print(f"   📄 Total documents: {stats['vector_store_stats']['total_documents']}")
         print(f"   📁 Source files: {stats['vector_store_stats']['unique_source_files']}")
         print(f"   🌍 Languages: {stats['vector_store_stats']['language_distribution']}")
+        print(f"   📑 Content types: {stats['vector_store_stats']['content_type_distribution']}")
+        print(f"   📋 Chunk types: {stats['vector_store_stats']['chunk_type_distribution']}")
         
     except Exception as e:
         logger.error(f"Vector store test failed: {e}")

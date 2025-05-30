@@ -60,7 +60,7 @@ class ChatMessage:
 
 # Add GGUF service class BEFORE LLMService class
 class GGUFModelService:
-    """Service for GGUF models using llama-cpp-python"""
+    """Service for GGUF models using llama-cpp-python - A100 Optimized"""
     
     def __init__(self, model_path: str):
         self.model_path = model_path
@@ -69,34 +69,85 @@ class GGUFModelService:
         self._initialize_model()
     
     def _initialize_model(self):
-        """Initialize GGUF model"""
+        """Initialize GGUF model with A100 optimizations"""
         try:
-            logger.info(f"🚀 Loading GGUF model: {self.model_name}")
+            logger.info(f"🚀 Loading GGUF model: {self.model_name} from path: {self.model_path}")
             
-            # Initialize with GPU acceleration
+            # A100 GPU optimized settings
+            import torch
+            
+            # Detect GPU and set optimal parameters
+            if torch.cuda.is_available():
+                gpu_name = torch.cuda.get_device_name(0)
+                gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1e9
+                
+                if "A100" in gpu_name:
+                    # A100 specific optimizations
+                    n_ctx = 8192        # Large context window for A100
+                    n_batch = 4096      # Large batch size for A100's memory
+                    n_threads = 8       # More CPU threads for A100 systems
+                    logger.info("🎯 A100 detected - Using maximum performance settings")
+                elif gpu_memory > 20:
+                    # High-end GPU settings
+                    n_ctx = 6144
+                    n_batch = 3072
+                    n_threads = 6
+                    logger.info("🚀 High-end GPU detected - Using optimized settings")
+                else:
+                    # Standard GPU settings
+                    n_ctx = 4096
+                    n_batch = 2048
+                    n_threads = 4
+                    logger.info("📊 Standard GPU detected - Using balanced settings")
+            else:
+                # CPU fallback
+                n_ctx = 2048
+                n_batch = 512
+                n_threads = 4
+                logger.warning("⚠️ No GPU detected - Using CPU settings")
+            
+            # Initialize with optimized settings
             self.llm = Llama(
                 model_path=self.model_path,
-                n_ctx=4096,  # Context window
-                n_gpu_layers=32,  # GPU layers for T4
-                n_batch=512,  # Batch size
-                verbose=False,
-                n_threads=4
+                n_ctx=n_ctx,           # Dynamic context window
+                n_gpu_layers=-1,       # Offload all layers to GPU
+                n_batch=n_batch,       # Dynamic batch size
+                verbose=True,
+                n_threads=n_threads,   # Dynamic CPU threads
+                # A100 specific optimizations
+                use_mmap=True,         # Memory mapping for efficiency
+                use_mlock=False,       # Don't lock memory (let OS manage)
+                numa=False,            # Disable NUMA for single GPU
+                # Performance optimizations
+                low_vram=False,        # A100 has plenty of VRAM
+                f16_kv=True,          # Use half precision for key-value cache
+                logits_all=False,     # Don't compute logits for all tokens
+                vocab_only=False,     # Load full model
+                # Threading and batching
+                n_threads_batch=n_threads,  # Threads for batch processing
             )
             
             logger.info("✅ GGUF model loaded successfully")
+            logger.info(f"📊 Context window: {n_ctx}")
+            logger.info(f"🔢 Batch size: {n_batch}")
+            logger.info(f"🧵 CPU threads: {n_threads}")
             
         except Exception as e:
             logger.error(f"❌ Failed to load GGUF model: {e}")
             self.llm = None
     
-    def generate_response(self, query: str, context: str, chat_history=None) -> str:
-        """Generate response using GGUF model"""
-        
+    def generate_response(self, query: str, context: str, chat_history=None) -> Tuple[str, float]:
+        """Generate response using GGUF model with A100 optimizations"""
+        llm_start_time = datetime.now()
+        duration_seconds: float = 0.0
+
         if self.llm is None:
-            return self._generate_fallback_response(query, context)
+            fallback_response = self._generate_fallback_response(query, context)
+            llm_end_time = datetime.now()
+            duration_seconds = (llm_end_time - llm_start_time).total_seconds()
+            return fallback_response, duration_seconds
         
         try:
-            # Build Mistral-style prompt
             system_prompt = """Sen finansal dokümanları analiz eden uzman bir asistansın. Verilen bağlam bilgilerini kullanarak Türkçe cevap ver.
 
 Kurallar:
@@ -109,26 +160,66 @@ Kurallar:
             # Mistral chat format
             prompt = f"<s>[INST] {system_prompt}\n\nBağlam Bilgileri:\n{context}\n\nSoru: {query} [/INST]"
             
-            # Generate response
+            # A100 optimized generation parameters
             response = self.llm(
                 prompt,
-                max_tokens=512,
+                max_tokens=1024,       # Increased for A100
                 temperature=0.7,
-                top_p=0.9,
-                stop=["</s>", "[INST]", "<s>"],
-                echo=False
+                top_p=0.95,           # Nucleus sampling
+                top_k=40,             # Top-k sampling
+                repeat_penalty=1.1,   # Prevent repetition
+                stop=["</s>", "[INST]", "[/INST]"],  # Stop sequences
+                # A100 performance optimizations
+                stream=False,         # Non-streaming for batch efficiency
+                echo=False,          # Don't echo prompt
+                # Threading for A100
+                threads=8 if "A100" in str(self.llm) else 4,
             )
             
-            generated_text = response['choices'][0]['text'].strip()
+            # Extract response text
+            if isinstance(response, dict) and 'choices' in response:
+                response_text = response['choices'][0]['text'].strip()
+            elif isinstance(response, dict) and 'content' in response:
+                response_text = response['content'].strip()
+            else:
+                response_text = str(response).strip()
             
-            # Clean response
-            generated_text = generated_text.replace("</s>", "").replace("[INST]", "").strip()
+            # Clean up response
+            response_text = self._clean_response(response_text)
             
-            return generated_text
+            llm_end_time = datetime.now()
+            duration_seconds = (llm_end_time - llm_start_time).total_seconds()
+            
+            logger.info(f"✅ GGUF response generated in {duration_seconds:.2f}s")
+            return response_text, duration_seconds
             
         except Exception as e:
-            logger.error(f"GGUF generation failed: {e}")
-            return self._generate_fallback_response(query, context)
+            logger.error(f"❌ GGUF generation failed: {e}")
+            fallback_response = self._generate_fallback_response(query, context)
+            llm_end_time = datetime.now()
+            duration_seconds = (llm_end_time - llm_start_time).total_seconds()
+            return fallback_response, duration_seconds
+    
+    def _clean_response(self, response_text: str) -> str:
+        """Clean and format the model response"""
+        # Remove unwanted tokens and formatting
+        response_text = response_text.replace("</s>", "")
+        response_text = response_text.replace("[INST]", "")
+        response_text = response_text.replace("[/INST]", "")
+        response_text = response_text.replace("<s>", "")
+        
+        # Remove extra whitespace
+        response_text = " ".join(response_text.split())
+        
+        # Remove any repeated patterns
+        lines = response_text.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            line = line.strip()
+            if line and line not in cleaned_lines[-3:]:  # Avoid recent repetitions
+                cleaned_lines.append(line)
+        
+        return '\n'.join(cleaned_lines).strip()
     
     def _generate_fallback_response(self, query: str, context: str) -> str:
         """Fallback when GGUF model fails"""
@@ -217,34 +308,50 @@ class LLMService:
         else:
             logger.warning("No OpenAI API key provided")
     
-    def generate_response(self, query: str, context: str, chat_history: List[ChatMessage] = None) -> str:
+    def generate_response(self, query: str, context: str, chat_history: List[ChatMessage] = None) -> Tuple[str, Optional[float]]:
         """
-        Generate response using available LLM service
+        Generate response using available LLM service and return response with its duration.
         """
+        response_text: str
+        duration_seconds: Optional[float] = None
         
         # Try GGUF model first
         if self.gguf_service and self.gguf_service.llm:
             try:
-                return self.gguf_service.generate_response(query, context, chat_history)
+                response_text, duration_seconds = self.gguf_service.generate_response(query, context, chat_history)
+                return response_text, duration_seconds
             except Exception as e:
                 logger.error(f"GGUF model failed: {e}")
         
         # Try local LLM
         if self.local_service:
             try:
-                return self.local_service.generate_response(query, context, chat_history)
+                # Placeholder: Modify LocalLLMService.generate_response to return Tuple[str, float] as well
+                # response_text, duration_seconds = self.local_service.generate_response(query, context, chat_history)
+                # return response_text, duration_seconds
+                logger.warning("LocalLLMService duration timing not implemented yet in this refactor.")
+                response_text = self.local_service.generate_response(query, context, chat_history)
+                return response_text, None # Duration not available yet for this path
             except Exception as e:
                 logger.error(f"Local LLM failed: {e}")
         
         # Try OpenAI API
         if self.openai_client:
             try:
-                return self._generate_openai_response(query, context, chat_history)
+                openai_start_time = datetime.now()
+                response_text = self._generate_openai_response(query, context, chat_history)
+                openai_end_time = datetime.now()
+                duration_seconds = (openai_end_time - openai_start_time).total_seconds()
+                return response_text, duration_seconds
             except Exception as e:
                 logger.error(f"OpenAI API failed: {e}")
         
         # Fallback response
-        return self._generate_fallback_response(query, context)
+        fallback_start_time = datetime.now()
+        response_text = self._generate_fallback_response(query, context)
+        fallback_end_time = datetime.now()
+        duration_seconds = (fallback_end_time - fallback_start_time).total_seconds()
+        return response_text, duration_seconds
     
     def get_service_info(self) -> dict:
         """Get information about the current LLM service"""
@@ -360,44 +467,35 @@ class PDFChatBot:
         
         logger.info("✅ PDF ChatBot initialized with GGUF support")
     
-    def process_pdf_file(self, pdf_file) -> str:
-        """Process uploaded PDF file and add to vector store"""
+    def process_pdf_file(self, pdf_file) -> Tuple[str, Optional[float]]:
+        """Process uploaded PDF file and add to vector store. Returns summary and duration."""
+        process_start_time = datetime.now()
+        duration_seconds: Optional[float] = None
+
         if pdf_file is None:
-            return "❌ Lütfen bir PDF dosyası yükleyin."
+            return "❌ Lütfen bir PDF dosyası yükleyin.", None
         
-        # Check if file already processed
         if pdf_file.name in self.processed_files:
-            return f"ℹ️ {pdf_file.name} zaten işlenmiş. Yeni sorular sorabilirsiniz."
+            return f"ℹ️ {pdf_file.name} zaten işlenmiş. Yeni sorular sorabilirsiniz.", None
         
         try:
-            # Save uploaded file temporarily
             with tempfile.NamedTemporaryFile(delete=False, suffix=".pdf") as tmp_file:
                 tmp_file.write(pdf_file.read())
                 temp_path = tmp_file.name
             
-            # Process PDF
             logger.info(f"Processing uploaded PDF: {pdf_file.name}")
             pdf_result = self.pdf_processor.process_pdf(temp_path)
             
-            # Generate embeddings and add to vector store
             embedded_chunks = self.text_processor.process_document_pages(
                 pdf_result.pages, 
                 pdf_file.name
             )
             
-            # Add to vector store
             self.vector_store.add_documents(embedded_chunks)
-            
-            # Track processed file
             self.processed_files.append(pdf_file.name)
-            
-            # Clean up temp file
             os.unlink(temp_path)
             
-            # Generate summary
             stats = self.text_processor.get_processing_stats(embedded_chunks)
-            
-            # Log vector store status
             vector_stats = self.retrieval_service.get_retrieval_stats()
             logger.info(f"Vector store now contains {vector_stats['vector_store_stats'].get('total_documents', 0)} documents")
             
@@ -417,54 +515,47 @@ class PDFChatBot:
             💬 Artık bu dokümana ve tablolarına dair sorular sorabilirsiniz!
             """
             
-            return summary
+            process_end_time = datetime.now()
+            duration_seconds = (process_end_time - process_start_time).total_seconds()
+            return summary, duration_seconds
             
         except Exception as e:
             logger.error(f"PDF processing failed: {e}")
-            return f"❌ PDF işlenemedi: {str(e)}"
+            process_end_time = datetime.now() # Record time even on failure for debugging
+            duration_seconds = (process_end_time - process_start_time).total_seconds()
+            return f"❌ PDF işlenemedi: {str(e)}", duration_seconds
     
-    def process_excel_file(self, excel_file) -> str:
-        """Process uploaded Excel file and add to vector store"""
+    def process_excel_file(self, excel_file) -> Tuple[str, Optional[float]]:
+        """Process uploaded Excel file and add to vector store. Returns summary and duration."""
+        process_start_time = datetime.now()
+        duration_seconds: Optional[float] = None
+
         if excel_file is None:
-            return "❌ Lütfen bir Excel dosyası yükleyin."
+            return "❌ Lütfen bir Excel dosyası yükleyin.", None
         
-        # Check if file already processed
         if excel_file.name in self.processed_files:
-            return f"ℹ️ {excel_file.name} zaten işlenmiş. Yeni sorular sorabilirsiniz."
+            return f"ℹ️ {excel_file.name} zaten işlenmiş. Yeni sorular sorabilirsiniz.", None
         
         try:
-            # Save uploaded file temporarily
             with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(excel_file.name)[1]) as tmp_file:
                 tmp_file.write(excel_file.read())
                 temp_path = tmp_file.name
             
-            # Process Excel
             logger.info(f"Processing uploaded Excel: {excel_file.name}")
             excel_result = self.excel_processor.process_excel(temp_path)
             
-            # Generate embeddings and add to vector store
             embedded_chunks = self.text_processor.process_excel_sheets(
                 excel_result.sheets, 
                 excel_file.name
             )
             
-            # Add to vector store
             self.vector_store.add_documents(embedded_chunks)
-            
-            # Track processed file
             self.processed_files.append(excel_file.name)
-            
-            # Clean up temp file
             os.unlink(temp_path)
             
-            # Generate summary
             summary_data = self.excel_processor.get_excel_summary(excel_result)
-            
-            # Log vector store status
             vector_stats = self.retrieval_service.get_retrieval_stats()
             logger.info(f"Vector store now contains {vector_stats['vector_store_stats'].get('total_documents', 0)} documents")
-            
-            # Calculate processing statistics
             total_text_length = sum(len(sheet.text_content) for sheet in excel_result.sheets)
             sheet_names = [sheet.sheet_name for sheet in excel_result.sheets]
             
@@ -490,11 +581,15 @@ class PDFChatBot:
             - "Tablo verilerini özetle"
             """
             
-            return summary
+            process_end_time = datetime.now()
+            duration_seconds = (process_end_time - process_start_time).total_seconds()
+            return summary, duration_seconds
             
         except Exception as e:
             logger.error(f"Excel processing failed: {e}")
-            return f"❌ Excel dosyası işlenemedi: {str(e)}"
+            process_end_time = datetime.now() # Record time even on failure for debugging
+            duration_seconds = (process_end_time - process_start_time).total_seconds()
+            return f"❌ Excel dosyası işlenemedi: {str(e)}", duration_seconds
     
     def chat(self, query: str, chat_history_display: List[List[str]]) -> Tuple[str, List[List[str]]]:
         """Handle chat interaction"""
@@ -509,7 +604,7 @@ class PDFChatBot:
             )
             
             # Generate response
-            response = self.llm_service.generate_response(
+            response, duration_seconds = self.llm_service.generate_response(
                 query=query,
                 context=context_result.combined_context,
                 chat_history=self.chat_history
@@ -558,117 +653,125 @@ class PDFChatBot:
             chat_history_display.append([query, error_response])
             return "", chat_history_display
     
-    def generate_single_response(self, query: str) -> str:
+    def generate_single_response(self, query: str) -> Tuple[str, Optional[float], Optional[float]]:
         """
-        Generate a single response for the given query
+        Generate a single response for the given query, returning response, total duration, and LLM duration.
         Optimized version with smart retrieval for large documents
         """
+        total_query_start_time = datetime.now()
+        llm_duration_seconds: Optional[float] = None
+
         if not query.strip():
-            return "❌ Lütfen bir soru girin."
+            return "❌ Lütfen bir soru girin.", (datetime.now() - total_query_start_time).total_seconds(), None
         
         try:
-            # Smart retrieval based on document size
-            vector_stats = self.retrieval_service.get_retrieval_stats()
-            total_docs = vector_stats['vector_store_stats'].get('total_documents', 0)
+            # <<< Geliştirme Başlangıcı: Top-k (n_results) 3 olarak sabitlendi >>>
+            n_results = 3 
+            logger.info(f"🔍 Retrieving top {n_results} results for query.")
+            # Eski dinamik n_results mantığı yorum satırı haline getirildi veya kaldırıldı.
+            # vector_stats = self.retrieval_service.get_retrieval_stats()
+            # total_docs = vector_stats['vector_store_stats'].get('total_documents', 0)
+            # 
+            # n_results = 5 # Varsayılan
+            # if total_docs > 200: n_results = 8
+            # elif total_docs > 100: n_results = 6
+            # 
+            # if n_results != 5: logger.info(f"🔍 Document mode: {total_docs} chunks, retrieving {n_results} results")
+            # <<< Geliştirme Sonu: Top-k (n_results) 3 olarak sabitlendi >>>
             
-            # Adjust retrieval parameters based on document size
-            if total_docs > 200:  # Large document
-                n_results = 8  # More results for better coverage
-                logger.info(f"🔍 Large document mode: {total_docs} chunks, retrieving {n_results} results")
-            elif total_docs > 100:
-                n_results = 6  # Medium document
-            else:
-                n_results = 5  # Default for small documents
+            context_result = self.retrieval_service.retrieve_context(query=query, n_results=n_results)
             
-            # Retrieve relevant context
-            context_result = self.retrieval_service.retrieve_context(
-                query=query,
-                n_results=n_results
-            )
-            
-            # Check if we have any context
             if not context_result.combined_context.strip():
-                return "❌ Bu soruya cevap verebilmek için ilgili bilgi dokümanlarda bulunamadı. Lütfen farklı bir soru deneyin."
+                return "❌ Bu soruya cevap verebilmek için ilgili bilgi dokümanlarda bulunamadı. Lütfen farklı bir soru deneyin.", (datetime.now() - total_query_start_time).total_seconds(), None
             
-            # Smart context filtering for large documents
-            if total_docs > 200 and len(context_result.combined_context) > 3000:
-                # Truncate context to most relevant parts
+            # Context filtering logic (can be kept or adjusted)
+            vector_stats = self.retrieval_service.get_retrieval_stats() # For total_docs in filtering
+            total_docs_for_filtering = vector_stats['vector_store_stats'].get('total_documents', 0)
+            if total_docs_for_filtering > 200 and len(context_result.combined_context) > 3000: # Bu eşik değerleri ayarlanabilir
                 context_parts = context_result.combined_context.split('\n\n')
-                
-                # Keep first 2000 chars of most relevant content
                 filtered_context = ""
                 for part in context_parts:
-                    if len(filtered_context + part) < 2000:
+                    if len(filtered_context + part) < 2000: # Bu karakter limiti de ayarlanabilir
                         filtered_context += part + "\n\n"
-                    else:
-                        break
-                
+                    else: break
                 if filtered_context:
                     context_result.combined_context = filtered_context.strip()
                     logger.info(f"📝 Context filtered for efficiency: {len(context_result.combined_context)} chars")
             
-            # Generate response
-            response = self.llm_service.generate_response(
+            # <<< Geliştirme Başlangıcı: LLM'e giden prompt'u loglama >>>
+            logger.info(f"--- LLM INPUT START ---")
+            logger.info(f"QUERY: {query}")
+            logger.info(f"CONTEXT (first 500 chars): {context_result.combined_context[:500]}...")
+            logger.info(f"CONTEXT (length): {len(context_result.combined_context)} chars")
+            # GGUFModelService içindeki prompt formatını burada da loglayabiliriz (opsiyonel)
+            # system_prompt_for_log = "Sen finansal dokümanları analiz eden uzman bir asistansın..."
+            # full_prompt_for_log = f"<s>[INST] {system_prompt_for_log}\\n\\nBağlam Bilgileri:\\n{context_result.combined_context}\\n\\nSoru: {query} [/INST]"
+            # logger.info(f"FULL PROMPT (length): {len(full_prompt_for_log)} chars")
+            logger.info(f"--- LLM INPUT END ---")
+            # <<< Geliştirme Sonu: LLM'e giden prompt'u loglama >>>
+
+            response, llm_duration_seconds = self.llm_service.generate_response(
                 query=query,
                 context=context_result.combined_context,
                 chat_history=self.chat_history
             )
             
-            # Add sources information if available
             if context_result.results:
-                sources = []
-                for result in context_result.results[:3]:  # Top 3 sources
-                    source_info = f"📄 {result.source_file} (Sayfa {result.page_number})"
-                    sources.append(source_info)
-                
+                sources = [f"📄 {result.source_file} (Sayfa {result.page_number})" for result in context_result.results[:3]]
                 response += f"\n\n**Kaynaklar:**\n" + "\n".join(sources)
             
-            # Update internal chat history
-            user_msg = ChatMessage(
-                role="user",
-                content=query,
-                timestamp=datetime.now()
-            )
-            
+            user_msg = ChatMessage(role="user", content=query, timestamp=datetime.now())
             assistant_msg = ChatMessage(
                 role="assistant", 
                 content=response,
                 timestamp=datetime.now(),
                 sources=[r.source_file for r in context_result.results] if context_result.results else []
             )
-            
             self.chat_history.extend([user_msg, assistant_msg])
             
-            return response
+            total_query_duration_seconds = (datetime.now() - total_query_start_time).total_seconds()
+            return response, total_query_duration_seconds, llm_duration_seconds
             
         except Exception as e:
             logger.error(f"Single response generation failed: {e}")
-            return f"❌ Cevap oluşturulamadı: {str(e)}\n\nLütfen tekrar deneyin veya farklı bir soru sorun."
+            total_query_duration_seconds = (datetime.now() - total_query_start_time).total_seconds()
+            return f"❌ Cevap oluşturulamadı: {str(e)}\n\nLütfen tekrar deneyin veya farklı bir soru sorun.", total_query_duration_seconds, None
     
     def get_stats(self) -> str:
-        """Get current chatbot statistics including table information"""
+        """Get current chatbot statistics including table information and timing."""
         try:
             retrieval_stats = self.retrieval_service.get_retrieval_stats()
-            vector_stats = retrieval_stats['vector_store_stats']
+            vector_store_actual_stats = retrieval_stats['vector_store_stats'] # Stats from FAISS via VectorStore.get_collection_stats()
             llm_info = self.llm_service.get_service_info()
             
-            # Get text processing stats if available
-            try:
-                # Get sample embedded chunk to analyze processing stats
-                sample_docs = self.vector_store.similarity_search("test", k=1)
-                if sample_docs:
-                    # This is a workaround to get text processing stats
-                    text_stats = {
-                        'table_chunks': vector_stats.get('table_chunks', 0),
-                        'text_chunks': vector_stats.get('text_chunks', 0),
-                        'pages_with_tables': vector_stats.get('pages_with_tables', 0),
-                        'content_type_distribution': vector_stats.get('content_type_distribution', {})
-                    }
-                else:
-                    text_stats = {}
-            except:
-                text_stats = {}
+            # Stats from TextProcessor for the last processed file (if any)
+            current_processing_stats = self.text_processor.get_processing_stats()
+
+            # Timing Information (from session_state)
+            model_load_time = st.session_state.get('model_load_duration_seconds')
+            file_process_time = st.session_state.get('last_file_processing_duration_seconds')
+            query_response_time = st.session_state.get('last_query_response_duration_seconds')
+            llm_inference_time = st.session_state.get('last_llm_inference_duration_seconds')
             
+            timing_info = "\n\n**⏱️ Son İşlem Süreleri:**\n"
+            if model_load_time is not None: timing_info += f"- Model Yükleme: {model_load_time:.2f} s\n"
+            if file_process_time is not None: timing_info += f"- Son Dosya İşleme: {file_process_time:.2f} s\n"
+            if query_response_time is not None: timing_info += f"- Son Sorgu Yanıtlama (Toplam): {query_response_time:.2f} s\n"
+            if llm_inference_time is not None: timing_info += f"- Son LLM Çıkarımı: {llm_inference_time:.2f} s\n"
+            if timing_info == "\n\n**⏱️ Son İşlem Süreleri:**\n": timing_info = "\n\n**⏱️ Son İşlem Süreleri:**\n- Henüz bir işlem yapılmadı.\n"
+
+            # Use content_type_distribution from vector_store_actual_stats for overall view
+            overall_content_distribution = vector_store_actual_stats.get('content_type_distribution', {})
+            text_chunks_overall = 0
+            table_chunks_overall = 0
+            excel_chunks_overall = 0
+            for ctype, count in overall_content_distribution.items():
+                if ctype == 'text_pdf': text_chunks_overall += count
+                elif ctype == 'table_pdf' or ctype == 'table_pdf_fragment': table_chunks_overall += count
+                elif ctype == 'excel': excel_chunks_overall += count
+                # Add other types if they exist and need to be categorized
+
+            # Constructing the stats text
             stats_text = f"""
             ## 📊 ChatBot İstatistikleri
             
@@ -676,31 +779,38 @@ class PDFChatBot:
             - Tip: {llm_info['service_type']}
             - Model: {llm_info['model_name']}
             - Durum: {llm_info['status']}
-            - Device: {llm_info.get('device', 'N/A')}
+            - Cihaz: {llm_info.get('device', 'N/A')}
             - GPU: {llm_info.get('gpu_info', 'N/A')}
             
-            **📚 Doküman Bilgileri:**
-            - Toplam chunk: {vector_stats.get('total_documents', 0)}
-            - Metin chunks: {text_stats.get('text_chunks', 'N/A')}
-            - Tablo chunks: {text_stats.get('table_chunks', 'N/A')}
-            - Tablolu sayfalar: {text_stats.get('pages_with_tables', 'N/A')}
-            - İşlenen dosyalar: {len(self.processed_files)}
-            - Dosya listesi: {', '.join(self.processed_files) if self.processed_files else 'Henüz dosya yüklenmedi'}
+            **📚 Doküman Bilgileri (Vector Store Genel):**
+            - Toplam Chunk (Vector Store): {vector_store_actual_stats.get('total_documents', 0)}
+            - Metin Chunk (Genel Tahmini): {text_chunks_overall}
+            - Tablo Chunk (Genel Tahmini): {table_chunks_overall}
+            - Excel Chunk (Genel Tahmini): {excel_chunks_overall}
+            - Embedding Modeli: {retrieval_stats['embedding_model']}
+            - İşlenen Dosyalar: {len(self.processed_files)}
+            - Dosya Listesi: {', '.join(self.processed_files) if self.processed_files else 'Henüz dosya yüklenmedi'}
             
-            **💬 Sohbet Bilgileri:**
-            - Toplam mesaj: {len(self.chat_history)}
-            - Embedding model: {retrieval_stats['embedding_model']}
+            **📄 Son İşlenen Dosya Detayları (TextProcessor):**
+            - Toplam Chunk (Son İşlem): {current_processing_stats.get('total_chunks', 'N/A')}
+            - Metin Chunk (Son İşlem): {current_processing_stats.get('text_chunks', 'N/A')}
+            - Tablo Chunk (Son İşlem): {current_processing_stats.get('table_chunks', 'N/A')}
+            - İçerik Dağılımı (Son İşlem): {json.dumps(current_processing_stats.get('content_type_distribution', {}), indent=2, ensure_ascii=False)}
+
+            **🔤 Dil Dağılımı (Vector Store Genel - Örneklemden):**
+            {json.dumps(vector_store_actual_stats.get('language_distribution', {}), indent=2, ensure_ascii=False)}
+            (Örneklem Boyutu: {vector_store_actual_stats.get('sample_size_for_distributions', 'N/A')})
             
-            **🔤 Dil Dağılımı:**
-            {json.dumps(vector_stats.get('language_distribution', {}), indent=2)}
-            
-            **📊 İçerik Türü Dağılımı:**
-            {json.dumps(text_stats.get('content_type_distribution', {}), indent=2)}
+            **📊 İçerik Türü Dağılımı (Vector Store Genel - Örneklemden):**
+            {json.dumps(overall_content_distribution, indent=2, ensure_ascii=False)}
+            (Örneklem Boyutu: {vector_store_actual_stats.get('sample_size_for_distributions', 'N/A')})
+            {timing_info}
             """
             
             return stats_text
             
         except Exception as e:
+            logger.error(f"Error getting stats: {e}", exc_info=True)
             return f"❌ İstatistik alınamadı: {str(e)}"
 
 def main():
@@ -717,6 +827,16 @@ def main():
         st.session_state.processed_files = []
     if 'current_query' not in st.session_state:
         st.session_state.current_query = ""
+    # <<< Geliştirme Başlangıcı: Zamanlama için Session State Değişkenleri >>>
+    if 'model_load_duration_seconds' not in st.session_state:
+        st.session_state.model_load_duration_seconds = None
+    if 'last_file_processing_duration_seconds' not in st.session_state:
+        st.session_state.last_file_processing_duration_seconds = None
+    if 'last_query_response_duration_seconds' not in st.session_state:
+        st.session_state.last_query_response_duration_seconds = None
+    if 'last_llm_inference_duration_seconds' not in st.session_state:
+        st.session_state.last_llm_inference_duration_seconds = None
+    # <<< Geliştirme Sonu: Zamanlama için Session State Değişkenleri >>>
     
     # Title
     st.title("📄💬 PDF & Excel ChatBot - Local LLM")
@@ -740,29 +860,26 @@ def main():
         
         if use_gguf:
             st.info("📁 GGUF Model Path'i giriniz:")
-            
-            # Default path for your specific model
             default_path = "/content/drive/MyDrive/Colab Notebooks/kredi_rag_sistemi/backup/models/mistral-7b-instruct-v0.2.Q4_K_M.gguf"
-            
-            model_path = st.text_input(
+            model_path_input = st.text_input(
                 "🔗 GGUF Model Path:",
                 value=default_path,
                 help="Drive'daki .gguf model dosyanızın tam path'i"
             )
             
-            # Model path validation
-            if model_path:
-                if os.path.exists(model_path):
-                    st.success(f"✅ GGUF Model bulundu!")
+            actual_model_path_for_llama = model_path_input
+
+            if model_path_input:
+                if os.path.exists(model_path_input):
+                    st.success(f"✅ GGUF Model bulundu: {model_path_input}")
                     try:
-                        file_size = os.path.getsize(model_path) / 1e9
+                        file_size = os.path.getsize(model_path_input) / 1e9
                         st.info(f"📊 Dosya boyutu: {file_size:.1f}GB")
                     except:
                         pass
                 else:
-                    st.error("❌ GGUF Model dosyası bulunamadı")
+                    st.error(f"❌ GGUF Model dosyası bulunamadı: {model_path_input}")
             
-            # GGUF requirements check
             if not GGUF_AVAILABLE:
                 st.error("""
                 ❌ **llama-cpp-python yüklü değil!**
@@ -773,20 +890,44 @@ def main():
                 ```
                 """)
             
-            # Initialize GGUF ChatBot
             if st.button("🚀 GGUF ChatBot'u Başlat", type="primary", disabled=st.session_state.model_initialized):
                 if not GGUF_AVAILABLE:
                     st.error("❌ llama-cpp-python kütüphanesi gerekli!")
-                elif not model_path or not os.path.exists(model_path):
+                elif not model_path_input or not os.path.exists(model_path_input):
                     st.error("❌ Geçerli model path'i girin!")
                 else:
                     with st.spinner("GGUF Model yükleniyor... (Bu birkaç dakika sürebilir)"):
                         try:
+                            # <<< Geliştirme Başlangıcı: Modeli Colab yerel diskine kopyalama >>>
+                            final_model_path_to_load = model_path_input
+                            if model_path_input.startswith("/content/drive/"):
+                                local_model_dir = "/content/models_colab_local"
+                                if not os.path.exists(local_model_dir):
+                                    os.makedirs(local_model_dir)
+                                model_filename = os.path.basename(model_path_input)
+                                local_model_path = os.path.join(local_model_dir, model_filename)
+                                
+                                if not os.path.exists(local_model_path):
+                                    st.info(f"Model Google Drive'da. {local_model_path} adresine kopyalanıyor...")
+                                    import shutil
+                                    shutil.copy2(model_path_input, local_model_path)
+                                    st.info(f"Model kopyalandı: {local_model_path}")
+                                    final_model_path_to_load = local_model_path
+                                else:
+                                    st.info(f"Model zaten yerel olarak mevcut: {local_model_path}")
+                                    final_model_path_to_load = local_model_path
+                            
+                            logger.info(f"Attempting to load GGUF model into PDFChatBot using path: {final_model_path_to_load}")
+                            # <<< Geliştirme Sonu: Modeli Colab yerel diskine kopyalama >>>
+
+                            load_start_time = datetime.now()
                             st.session_state.chatbot = PDFChatBot(
                                 use_local_llm=True,
                                 model_choice="gguf_model",
-                                gguf_model_path=model_path
+                                gguf_model_path=final_model_path_to_load
                             )
+                            load_end_time = datetime.now()
+                            st.session_state.model_load_duration_seconds = (load_end_time - load_start_time).total_seconds()
                             
                             llm_info = st.session_state.chatbot.llm_service.get_service_info()
                             st.session_state.model_initialized = True
@@ -838,11 +979,17 @@ def main():
                         try:
                             # Set model path environment
                             os.environ["CUSTOM_MODEL_PATH"] = model_path
-                            
+                            # <<< Geliştirme Başlangıcı: Model Yükleme Zamanlaması (Diğer Model Türü) >>>
+                            load_start_time_other = datetime.now()
+                            # <<< Geliştirme Sonu: Model Yükleme Zamanlaması (Diğer Model Türü) >>>
                             st.session_state.chatbot = PDFChatBot(
                                 use_local_llm=True,
-                                model_choice="custom_drive_model"
+                                model_choice="custom_drive_model" # Bu model_choice'un LocalLLMService tarafından nasıl ele alındığına bağlı
                             )
+                            # <<< Geliştirme Başlangıcı: Model Yükleme Zamanlaması (Diğer Model Türü) >>>
+                            load_end_time_other = datetime.now()
+                            st.session_state.model_load_duration_seconds = (load_end_time_other - load_start_time_other).total_seconds()
+                            # <<< Geliştirme Sonu: Model Yükleme Zamanlaması (Diğer Model Türü) >>>
                             
                             llm_info = st.session_state.chatbot.llm_service.get_service_info()
                             st.session_state.model_initialized = True
@@ -884,14 +1031,17 @@ def main():
                 elif uploaded_file is not None:
                     with st.spinner("PDF işleniyor..."):
                         try:
-                            result = st.session_state.chatbot.process_pdf_file(uploaded_file)
-                            if "✅" in result:
-                                # Update processed files in session state
+                            # <<< Geliştirme Başlangıcı: Dosya İşleme Süresini Alma >>>
+                            result_summary, duration_secs = st.session_state.chatbot.process_pdf_file(uploaded_file)
+                            if duration_secs is not None:
+                                st.session_state.last_file_processing_duration_seconds = duration_secs
+                            # <<< Geliştirme Sonu: Dosya İşleme Süresini Alma >>>
+                            if "✅" in result_summary:
                                 if uploaded_file.name not in st.session_state.processed_files:
                                     st.session_state.processed_files.append(uploaded_file.name)
-                                st.success(result)
+                                st.success(result_summary)
                             else:
-                                st.error(result)
+                                st.error(result_summary)
                         except Exception as e:
                             st.error(f"PDF işleme hatası: {e}")
                 else:
@@ -910,14 +1060,17 @@ def main():
                 elif uploaded_file is not None:
                     with st.spinner("Excel dosyası işleniyor..."):
                         try:
-                            result = st.session_state.chatbot.process_excel_file(uploaded_file)
-                            if "✅" in result:
-                                # Update processed files in session state
+                            # <<< Geliştirme Başlangıcı: Dosya İşleme Süresini Alma >>>
+                            result_summary, duration_secs = st.session_state.chatbot.process_excel_file(uploaded_file)
+                            if duration_secs is not None:
+                                st.session_state.last_file_processing_duration_seconds = duration_secs
+                            # <<< Geliştirme Sonu: Dosya İşleme Süresini Alma >>>
+                            if "✅" in result_summary:
                                 if uploaded_file.name not in st.session_state.processed_files:
                                     st.session_state.processed_files.append(uploaded_file.name)
-                                st.success(result)
+                                st.success(result_summary)
                             else:
-                                st.error(result)
+                                st.error(result_summary)
                         except Exception as e:
                             st.error(f"Excel işleme hatası: {e}")
                 else:
@@ -982,7 +1135,6 @@ def main():
             elif not st.session_state.processed_files:
                 st.error("❌ Önce PDF dosyası yükleyin (Sol menüden)")
             else:
-                # Additional check - verify vector store has data
                 try:
                     retrieval_stats = st.session_state.chatbot.retrieval_service.get_retrieval_stats()
                     total_docs = retrieval_stats['vector_store_stats'].get('total_documents', 0)
@@ -993,20 +1145,22 @@ def main():
                     st.error("❌ Vector store durumu kontrol edilemedi.")
                     st.stop()
                 
-                # Display user message immediately
                 with st.chat_message("user"):
                     st.write(query)
                 
-                # Generate and display response
                 with st.chat_message("assistant"):
                     with st.spinner("Cevap üretiliyor..."):
                         try:
-                            # Get response using the improved method
-                            response = st.session_state.chatbot.generate_single_response(query)
-                            st.write(response)
+                            # <<< Geliştirme Başlangıcı: Sorgu ve LLM Sürelerini Alma >>>
+                            response_text, total_duration, llm_duration = st.session_state.chatbot.generate_single_response(query)
+                            if total_duration is not None:
+                                st.session_state.last_query_response_duration_seconds = total_duration
+                            if llm_duration is not None:
+                                st.session_state.last_llm_inference_duration_seconds = llm_duration
+                            # <<< Geliştirme Sonu: Sorgu ve LLM Sürelerini Alma >>>
+                            st.write(response_text)
                             
-                            # Add to chat history
-                            st.session_state.chat_history.append([query, response])
+                            st.session_state.chat_history.append([query, response_text])
                             
                         except Exception as e:
                             error_msg = f"❌ Hata: {str(e)}"
