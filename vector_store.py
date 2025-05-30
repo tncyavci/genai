@@ -163,7 +163,7 @@ class VectorStore:
     def search(self, 
                query_embedding: np.ndarray,
                n_results: int = 10,  # Increased from 5
-               min_score: float = 0.6,  # Restored to reasonable level
+               min_score: float = 0.7,  # New parameter
                filter_metadata: Optional[Dict] = None) -> List[SearchResult]:
         """
         Perform similarity search in the vector store
@@ -317,8 +317,8 @@ class RetrievalService:
     
     def retrieve_context(self, 
                         query: str,
-                        n_results: int = 10,  # Increased from 5 to 10
-                        min_score: float = 0.6,  # Restored to reasonable level
+                        n_results: int = 5,
+                        min_score: float = 0.7,
                         filter_by_language: Optional[str] = None,
                         filter_by_source: Optional[str] = None,
                         filter_by_content_type: Optional[str] = None) -> RetrievalContext:
@@ -447,18 +447,9 @@ def test_vector_store():
         vector_store.add_documents(embedded_chunks)
         
         # Initialize retrieval service
-        class EmbeddingServiceWrapper:
-            def __init__(self, model):
-                self.model_name = model.model_name if hasattr(model, 'model_name') else str(model)
-                self.model = model
-            
-            def generate_embedding(self, text: str):
-                return self.model.encode(text)
-        
-        embedding_wrapper = EmbeddingServiceWrapper(text_processor.model)
         retrieval_service = RetrievalService(
             vector_store=vector_store,
-            embedding_service=embedding_wrapper
+            embedding_service=text_processor.embedding_service
         )
         
         # Test retrieval
